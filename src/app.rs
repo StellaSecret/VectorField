@@ -80,6 +80,10 @@ struct St {
     // Survey
     tool: Tool,
     cur: V2,
+    // Shape
+    /// The source being dragged, and the one Delete / the Remove button act on.
+    drag: Option<usize>,
+    shape_sel: Option<usize>,
     // Steer
     sel: Option<Action>,
     beat_t: f64,
@@ -114,6 +118,7 @@ struct SteerReplay {
 enum Game {
     Steer(SteerGame),
     Survey(SurveyGame),
+    Shape(ShapeGame),
     Position(PositionGame),
     Predict(PredictGame),
     Tempo(TempoGame),
@@ -124,6 +129,7 @@ impl Game {
         match self {
             Game::Steer(g) => &g.level,
             Game::Survey(g) => &g.level,
+            Game::Shape(g) => g.level(),
             Game::Position(g) => &g.level,
             Game::Predict(g) => &g.level,
             Game::Tempo(g) => &g.level,
@@ -134,6 +140,7 @@ impl Game {
         match self {
             Game::Steer(g) => g.won,
             Game::Survey(g) => g.won,
+            Game::Shape(g) => g.won,
             Game::Position(g) => g.won,
             Game::Predict(g) => g.passed(),
             Game::Tempo(g) => g.won,
@@ -153,6 +160,7 @@ fn make_session(idx: usize, level: Level) -> Session {
     let game = match &level.rules {
         Rules::Steer { .. } => Game::Steer(SteerGame::new(level)),
         Rules::Survey { .. } => Game::Survey(SurveyGame::new(level)),
+        Rules::Shape { .. } => Game::Shape(ShapeGame::new(level)),
         Rules::Position { .. } => Game::Position(PositionGame::new(level)),
         Rules::Predict { .. } => Game::Predict(PredictGame::new(level)),
         Rules::Tempo { .. } => Game::Tempo(TempoGame::new(level)),
@@ -257,8 +265,8 @@ impl App {
             let hot = r.contains(inp.mouse) && unlocked;
             draw_rectangle(r.x, r.y, r.w, r.h, if hot { rgb(54, 62, 82) } else { rgb(36, 41, 56) });
             draw_rectangle_lines(r.x, r.y, r.w, r.h, 3.0, if unlocked { chapter_color(*c) } else { rgb(70, 74, 86) });
-            text_c(c.name(), r.x + r.w / 2.0, r.y + 40.0, if count > 6.0 { 26.0 } else { 30.0 }, if unlocked { WHITE } else { gray() });
-            wrap(c.question(), r.x + 14.0, r.y + 90.0, r.w - 28.0, if count > 6.0 { 20.0 } else { 22.0 }, gray());
+            text_c(c.name(), r.x + r.w / 2.0, r.y + 40.0, if count > 7.0 { 22.0 } else if count > 6.0 { 26.0 } else { 30.0 }, if unlocked { WHITE } else { gray() });
+            wrap(c.question(), r.x + 14.0, r.y + 90.0, r.w - 28.0, if count > 7.0 { 18.0 } else if count > 6.0 { 20.0 } else { 22.0 }, gray());
             text_c(&format!("{}/{} complete", n, ids.len()), r.x + r.w / 2.0, r.y + 250.0, 20.0, WHITE);
             if !unlocked {
                 text_c("Locked", r.x + r.w / 2.0, r.y + 170.0, 22.0, bad_c());
@@ -270,7 +278,7 @@ impl App {
         }
         let lines = [
             "Mouse: click and drag.   Space / Enter: launch or confirm.   H: hint.   R: retry.   V: replay.   Esc: back.",
-            "G: arrow grid density.   K: high-contrast arrows.   U: unlock every level.   Survey: S scout, M marker, C commit.",
+            "G: arrow grid density.   K: high-contrast arrows.   U: unlock every level.   Survey: S scout, M marker, C commit.   Shape: 1-4 kind, P place, Del remove.",
         ];
         for (i, l) in lines.iter().enumerate() {
             text_c(l, W / 2.0, 570.0 + i as f32 * 28.0, 20.0, gray());
@@ -326,6 +334,7 @@ fn chapter_color(c: Chapter) -> Color {
         Chapter::Experiment => rgb(0, 158, 115),
         Chapter::Steer => rgb(213, 94, 0),
         Chapter::Survey => rgb(160, 130, 255),
+        Chapter::Shape => rgb(150, 215, 120),
         Chapter::Combo => rgb(230, 159, 0),
     }
 }
@@ -422,6 +431,7 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
     match &mut s.game {
         Game::Steer(g) => steer_frame(g, &mut s.st, inp, prefs, dt),
         Game::Survey(g) => survey_frame(g, &mut s.st, inp, prefs),
+        Game::Shape(g) => shape_frame(g, &mut s.st, inp, prefs),
         Game::Position(g) => pos_frame(g, &mut s.st, inp, prefs),
         Game::Predict(g) => predict_frame(g, &mut s.st, inp, prefs),
         Game::Tempo(g) => tempo_frame(g, &mut s.st, inp, prefs, dt),
@@ -511,6 +521,7 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
         let detail = match &s.game {
             Game::Steer(g) => format!("Gusts used: {} of {}   Attempts: {}", g.run().gusts_used(), g.spec.budget, g.attempts + 1),
             Game::Survey(g) => format!("Attempts: {}   Scouts used last round: {} of {}", g.attempts(), g.round().paid(), g.spec.budget),
+            Game::Shape(g) => format!("Launches used: {}   Sources in the winning field: {}", g.attempts.len(), g.attempts.last().map_or(0, |a| a.sources.len())),
             Game::Position(g) => format!("Launches used: {}", g.attempts.len()),
             Game::Predict(g) => format!("Forecasts correct: {} of {}", g.correct_count(), g.rounds.len()),
             Game::Tempo(g) => format!("Launches used: {}", g.attempts.len()),
@@ -1951,6 +1962,308 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     } else if let Some(src) = g.round().revealed_source() {
         let what = if g.spec.typed() { format!("The source was a {} at", g.round().revealed_kind().map_or("source", |k| k.name())) } else { "The source was at".to_string() };
         wrap(&format!("{} ({:.1}, {:.1}). Press R for a new hidden position.", what, src.x, src.y), PX0, y, PW, 17.0, WHITE);
+    }
+}
+
+// ------------------------------------------------------------------ SHAPE
+fn shape_result(o: Outcome) -> &'static str {
+    match o {
+        Outcome::Reached(_) => "reached the target",
+        Outcome::Hazard(_) => "hit the obstacle",
+        Outcome::Boundary => "left the field",
+        Outcome::Timeout => "ran out of time",
+        Outcome::Stalled => "came to rest",
+        Outcome::Invalid => "hit a numerical fault",
+    }
+}
+
+fn shape_kind_words(k: SourceKind) -> &'static str {
+    match k {
+        SourceKind::Repeller => "pushes the flow away from itself",
+        SourceKind::Attractor => "pulls the flow toward itself",
+        SourceKind::SwirlCcw => "pushes the flow sideways, counter-clockwise around itself",
+        SourceKind::SwirlCw => "pushes the flow sideways, clockwise around itself",
+    }
+}
+
+/// Arrows around `(cx, cy)` showing what a kind of source does: out, in, or around (counter-clockwise on the
+/// screen for `SwirlCcw`, as the world turns).
+fn shape_glyph(cx: f32, cy: f32, kind: SourceKind, col: Color, inner: f32, outer: f32) {
+    for i in 0..4 {
+        let a = std::f32::consts::FRAC_PI_4 + i as f32 * std::f32::consts::FRAC_PI_2;
+        let (dir, side) = (vec2(a.cos(), a.sin()), vec2(-a.sin(), a.cos()));
+        let mid = (inner + outer) * 0.5;
+        let half = (outer - inner) * 0.5;
+        let c = vec2(cx, cy);
+        let (from, to) = match kind {
+            SourceKind::Repeller => (c + dir * inner, c + dir * outer),
+            SourceKind::Attractor => (c + dir * outer, c + dir * inner),
+            // `side` turns clockwise on a y-down screen, so counter-clockwise is its negative
+            SourceKind::SwirlCcw => (c + dir * mid + side * half, c + dir * mid - side * half),
+            SourceKind::SwirlCw => (c + dir * mid - side * half, c + dir * mid + side * half),
+        };
+        r::draw_arrow(from, to, col, 2.0, false);
+    }
+}
+
+/// A placed (or about-to-be-placed) source: its influence ring, a disc and the kind's arrows.
+fn draw_shape_source(spec: &ShapeSpec, p: V2, kind: SourceKind, col: Color, selected: bool, ghost: bool) {
+    let s = r::w2s(p);
+    let a = if ghost { 0.45 } else { 1.0 };
+    let rad = spec.influence_radius() as f32 * r::PX;
+    for k in (0..48).step_by(2) {
+        let (a0, a1) = (k as f32 / 48.0 * std::f32::consts::TAU, (k + 1) as f32 / 48.0 * std::f32::consts::TAU);
+        draw_line(s.x + rad * a0.cos(), s.y + rad * a0.sin(), s.x + rad * a1.cos(), s.y + rad * a1.sin(), 1.5, alpha(col, 0.45 * a));
+    }
+    draw_circle(s.x, s.y, 9.0, alpha(BLACK, a));
+    draw_circle(s.x, s.y, 7.0, alpha(col, a));
+    shape_glyph(s.x, s.y, kind, alpha(WHITE, 0.9 * a), 13.0, 24.0);
+    if selected {
+        draw_circle_lines(s.x, s.y, 30.0, 2.0, alpha(WHITE, 0.85));
+    }
+}
+
+fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
+    let lvl = g.level().clone();
+    let accent = chapter_color(Chapter::Shape);
+    let flying = st.flying();
+    let spec = g.spec.clone();
+    let multi_kind = spec.kinds.len() > 1;
+    let mouse_w = r::s2w(inp.mouse);
+    let over = r::in_area(inp.mouse);
+
+    // ---- input (before drawing, so this frame already shows the edit)
+    let mut edited = false;
+    if !flying {
+        for (i, key) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4].iter().enumerate() {
+            if is_key_pressed(*key) {
+                let _ = g.select(i);
+            }
+        }
+        if is_key_pressed(KeyCode::Tab) {
+            g.cycle_kind();
+        }
+        // keyboard cursor, as in Survey
+        let step = if is_key_down(KeyCode::LeftShift) { 0.25 } else { 1.2 } * get_frame_time() as f64;
+        let mut d = V2::ZERO;
+        if is_key_down(KeyCode::Left) {
+            d.x -= step;
+        }
+        if is_key_down(KeyCode::Right) {
+            d.x += step;
+        }
+        if is_key_down(KeyCode::Up) {
+            d.y += step;
+        }
+        if is_key_down(KeyCode::Down) {
+            d.y -= step;
+        }
+        if d != V2::ZERO {
+            st.cur = lvl.bounds.clamp(st.cur + d);
+        }
+        let mut place_at: Option<V2> = None;
+        if inp.pressed && over {
+            st.cur = mouse_w;
+            if let Some(i) = g.source_at(mouse_w, 0.35) {
+                st.drag = Some(i);
+                st.shape_sel = Some(i);
+            } else {
+                place_at = Some(mouse_w);
+            }
+        }
+        if is_key_pressed(KeyCode::P) {
+            // from the keyboard: place at the cursor, or (when no sources are left) move the selected source there
+            place_at = Some(st.cur);
+        }
+        if let Some(p) = place_at {
+            match g.place(p) {
+                Ok(i) => {
+                    st.shape_sel = Some(i);
+                    edited = true;
+                }
+                Err(vfield::modes::ShapePlaceError::Full) if st.shape_sel.is_some() && g.source_at(p, 0.35).is_none() && !inp.pressed => {
+                    let i = st.shape_sel.unwrap().min(g.sources.len() - 1);
+                    match g.move_source(i, p) {
+                        Ok(()) => edited = true,
+                        Err(e) => {
+                            st.msg = e.message();
+                            st.good = Some(false);
+                        }
+                    }
+                }
+                Err(e) => {
+                    st.msg = e.message();
+                    st.good = Some(false);
+                }
+            }
+        }
+        if let Some(i) = st.drag {
+            if inp.down {
+                if over && g.move_source(i, mouse_w).is_ok() {
+                    edited = true;
+                }
+            } else {
+                st.drag = None;
+            }
+        }
+        let remove = is_key_pressed(KeyCode::Delete) || is_key_pressed(KeyCode::Backspace) || is_key_pressed(KeyCode::X);
+        if remove {
+            if let Some(i) = st.shape_sel.filter(|i| *i < g.sources.len()) {
+                g.remove(i);
+                st.shape_sel = None;
+                st.drag = None;
+                edited = true;
+            }
+        }
+        if is_mouse_button_pressed(MouseButton::Right) && over {
+            if let Some(i) = g.source_at(mouse_w, 0.35) {
+                g.remove(i);
+                st.shape_sel = None;
+                st.drag = None;
+                edited = true;
+            }
+        }
+        if edited {
+            st.anim = None;
+            st.msg.clear();
+            st.good = None;
+        }
+    }
+    if st.shape_sel.is_some_and(|i| i >= g.sources.len()) {
+        st.shape_sel = None;
+    }
+
+    // ---- drawing
+    r::begin_area();
+    // The arrows are the *combined* field, so a placed or dragged source visibly reshapes them. No path is drawn
+    // for the player before a launch: only what has already been flown is shown.
+    let flat = g.field();
+    r::draw_field(&flat, 0.0, prefs.grid, prefs.hc);
+    for z in &spec.zones {
+        let b = z.bbox();
+        if b.width() * b.height() < 0.4 * lvl.bounds.width() * lvl.bounds.height() {
+            r::draw_zone(z);
+        } else {
+            r::draw_zone_frame(z);
+        }
+    }
+    for reg in &lvl.regions {
+        r::draw_region(reg, false);
+    }
+    r::draw_start(spec.start);
+    let keep = if st.anim.is_some() { g.attempts.len().saturating_sub(1) } else { g.attempts.len() };
+    for a in g.attempts[..keep].iter().rev().take(3) {
+        r::draw_path(&a.traj.points, alpha(r::c_probe(), 0.22), 2.0);
+    }
+    draw_anim(st);
+    for (i, src) in g.sources.iter().enumerate() {
+        draw_shape_source(&spec, src.pos, src.kind, accent, st.shape_sel == Some(i), false);
+        if multi_kind {
+            let sp = r::w2s(src.pos);
+            text(src.kind.short(), sp.x + 14.0, sp.y - 30.0, 16.0, alpha(accent, 0.95));
+        }
+    }
+    // what a click would do here
+    let mut hover_note = String::new();
+    if !flying {
+        let aim = if over { mouse_w } else { st.cur };
+        let on_source = g.source_at(aim, 0.35).is_some();
+        if !on_source && st.drag.is_none() {
+            match g.can_place(aim) {
+                Ok(()) => draw_shape_source(&spec, aim, g.kind(), accent, false, true),
+                Err(e) => {
+                    let s = r::w2s(aim);
+                    draw_line(s.x - 8.0, s.y - 8.0, s.x + 8.0, s.y + 8.0, 2.5, alpha(r::c_hazard(), 0.9));
+                    draw_line(s.x - 8.0, s.y + 8.0, s.x + 8.0, s.y - 8.0, 2.5, alpha(r::c_hazard(), 0.9));
+                    hover_note = e.message();
+                }
+            }
+        }
+        let c = r::w2s(st.cur);
+        draw_line(c.x - 12.0, c.y, c.x + 12.0, c.y, 1.5, alpha(WHITE, 0.45));
+        draw_line(c.x, c.y - 12.0, c.x, c.y + 12.0, 1.5, alpha(WHITE, 0.45));
+    }
+    r::end_area();
+    text(
+        "Dashed ring: how far a source visibly changes the arrows. Dashed frame or shading: where sources may go. No path is shown until you launch.",
+        r::AX,
+        r::AY + r::AH + 24.0,
+        16.0,
+        gray(),
+    );
+    text("Click: place a source.   Drag: move it.   Del, X or right-click: remove it.   Arrows move the cursor, P places at it.   1-4 or Tab: kind.", r::AX, r::AY + r::AH + 46.0, 16.0, gray());
+
+    // ---- panel
+    let mut y = panel_header(&lvl);
+    y = wrap("Place sources to bend the flow, then launch the probe.", PX0, y + 8.0, PW, 16.0, gray());
+    y += 8.0;
+    if multi_kind {
+        for (i, k) in spec.kinds.iter().enumerate() {
+            let rr = Rect::new(PX0, y, PW, 26.0);
+            let sel = g.sel == i;
+            let hot = !flying && rr.contains(inp.mouse);
+            draw_rectangle(rr.x, rr.y, rr.w, rr.h, if sel { alpha(accent, 0.30) } else if hot { rgb(54, 62, 82) } else { rgb(36, 41, 56) });
+            draw_rectangle_lines(rr.x, rr.y, rr.w, rr.h, 2.0, if sel { accent } else { rgb(70, 74, 86) });
+            shape_glyph(rr.x + 16.0, rr.y + 13.0, *k, WHITE, 4.0, 9.0);
+            text(&format!("{}  {}", i + 1, k.short()), rr.x + 36.0, rr.y + 19.0, 18.0, if sel { WHITE } else { gray() });
+            if hot && inp.pressed {
+                let _ = g.select(i);
+            }
+            y += 29.0;
+        }
+        y = wrap(&format!("A {} {}.", g.kind().short(), shape_kind_words(g.kind())), PX0, y + 14.0, PW, 17.0, WHITE);
+    } else {
+        shape_glyph(PX0 + 14.0, y + 14.0, g.kind(), WHITE, 5.0, 11.0);
+        text(&format!("Source: {}", g.kind().short()), PX0 + 36.0, y + 20.0, 19.0, WHITE);
+        y = wrap(&format!("A {} {}.", g.kind().short(), shape_kind_words(g.kind())), PX0, y + 38.0, PW, 17.0, gray());
+    }
+    y += 10.0;
+    text("Sources", PX0, y + 14.0, 19.0, WHITE);
+    for i in 0..spec.max_sources {
+        let (cx, cy) = (PX0 + 100.0 + i as f32 * 28.0, y + 8.0);
+        if i < g.sources.len() {
+            draw_circle(cx, cy, 10.0, accent);
+        } else {
+            draw_circle_lines(cx, cy, 10.0, 2.0, gray());
+        }
+    }
+    y += 34.0;
+    let half = (PW - 8.0) / 2.0;
+    let can_remove = !flying && st.shape_sel.is_some();
+    if ui::button(inp, Rect::new(PX0, y, half, 32.0), "Remove (Del)", can_remove, rgb(90, 96, 118)) {
+        if let Some(i) = st.shape_sel {
+            g.remove(i);
+            st.shape_sel = None;
+            st.anim = None;
+            st.msg.clear();
+            st.good = None;
+        }
+    }
+    if ui::button(inp, Rect::new(PX0 + half + 8.0, y, half, 32.0), "Clear all", !flying && !g.sources.is_empty(), rgb(90, 96, 118)) {
+        g.clear();
+        st.shape_sel = None;
+        st.anim = None;
+        st.msg.clear();
+        st.good = None;
+    }
+    y += 40.0;
+    if !hover_note.is_empty() && st.msg.is_empty() {
+        y = wrap(&hover_note, PX0, y + 4.0, PW, 16.0, alpha(r::c_hazard(), 1.0));
+    }
+    y += 8.0;
+    let go = ui::button(inp, Rect::new(PX0, y, PW, 44.0), "Launch (Space)", !flying, accent);
+    text(&format!("Launches: {}", g.attempts.len()), PX0, y + 66.0, 18.0, gray());
+    if (go || space()) && !flying {
+        let a = g.launch().clone();
+        st.anim = Some(Anim::new(vec![(a.traj.clone(), r::c_probe())]));
+        st.good = Some(a.success);
+        st.msg = if a.success {
+            "Success! The probe reached the target.".into()
+        } else if a.sources.is_empty() {
+            format!("With no sources the probe {}. Change the field and launch again.", shape_result(a.traj.outcome))
+        } else {
+            format!("The probe {}. Change the field and launch again.", shape_result(a.traj.outcome))
+        };
     }
 }
 

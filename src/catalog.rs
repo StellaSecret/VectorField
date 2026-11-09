@@ -90,6 +90,16 @@ fn rules(l: &Level) -> Vec<String> {
             };
             vec!["mechanic: **Experiment**".to_string(), format!("fixed start {}", v(*start)), format!("intensity range [{}, {}]", n(range.0), n(range.1)), format!("challenge: {}", ch)]
         }
+        Rules::Shape { start, goal, zones, kinds, sources, k, sigma } => vec![
+            "mechanic: **Shape**".to_string(),
+            "the field layers above are the fixed background; the player adds sources to them".to_string(),
+            format!("probe starts at {}; it must reach region {} ({}), and any hazard ends the run", v(*start), goal, l.regions[*goal].label),
+            format!("source kinds offered: {}", kinds.iter().map(|k| k.short()).collect::<Vec<_>>().join(", ")),
+            format!("up to {} source(s), each with strength k = {} and width sigma = {} (Gauss terms); none on a target or obstacle, none within {} of another", sources, n(*k), n(*sigma), n(crate::modes::SHAPE_MIN_SEPARATION)),
+            format!("placement areas: {}", zones.iter().map(zone).collect::<Vec<_>>().join("; ")),
+            "sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch".to_string(),
+            format!("run time limit: {} s", n(l.max_time)),
+        ],
         Rules::Survey { zone: z, free, scouts, k, sigma, tol, rays, band, preview, pool, kinds, partners, goal } => vec![
             "mechanic: **Survey**".to_string(),
             "the field layers above are the *charted background*; the hidden source is added to them and is not listed".to_string(),

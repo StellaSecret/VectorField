@@ -444,6 +444,79 @@ pub fn combo_levels() -> Vec<Level> {
     ]
 }
 
+/// Shape levels. Every source uses the Survey source's profile (strength 1.65, width 0.8: peak push 0.8, felt out to
+/// 1.87), so a player who has met a hidden source has met this one. The probe is released at (-5, 0) and every level
+/// ends a run after 25 s (a probe that has not arrived by then is not going to).
+const SHAPE_K: f64 = 1.65;
+const SHAPE_SIGMA: f64 = 0.8;
+const SHAPE_START: V2 = v2(-5.0, 0.0);
+fn shape_rules(goal: usize, zones: Vec<Zone>, kinds: Vec<SourceKind>, sources: usize) -> Rules {
+    Rules::Shape { start: SHAPE_START, goal, zones, kinds, sources, k: SHAPE_K, sigma: SHAPE_SIGMA }
+}
+fn shape_level(id: &'static str, title: &'static str, objective: &'static str, field: Field, regions: Vec<Region>, rules: Rules) -> Level {
+    let mut l = base(id, Chapter::Shape, title, objective, field, regions, rules);
+    l.max_time = 25.0;
+    l
+}
+
+pub fn shape_levels() -> Vec<Level> {
+    vec![
+        // Deflect: a uniform stream carries the probe straight into a small obstacle; the target sits above the
+        // stream. Only a repeller is offered, and one is enough: it must be placed *below and upstream* of the
+        // obstacle, so that it pushes the probe up before it arrives. Placed beside or beyond the obstacle it does
+        // nothing useful. About 9% of the placement area wins (see docs/10-shape.md).
+        hints(shape_level("shp-1", "Deflect", "Place a repeller so the flow carries the probe around the obstacle and onto the target.",
+            Field::new().fixed(uni(1.0, 0.0)),
+            vec![Region::target(4.5, 1.3, 0.7), Region::hazard(-0.5, 0.0, 0.6)],
+            shape_rules(0, vec![Zone::Rect(Rect::new(-4.0, -3.0, 3.0, 3.0))], vec![SourceKind::Repeller], 1)),
+            &[
+                "Press Launch before placing anything: the probe flies the field as it is, and you see where it goes wrong.",
+                "A repeller pushes the flow away from itself, so the probe is pushed away from wherever you put it. The arrows redraw as you move it.",
+                "A source only changes the path while the probe is near it. Think about which side of the path the push has to come from, and whether it has to act before or after the obstacle.",
+            ]),
+        // Recover: the stream drifts slowly downward, so the probe passes well below the target. Only an attractor
+        // helps (a repeller in the permitted area can only push the probe further down): it pulls the probe toward
+        // its own height, so it has to sit at the target's height. An obstacle stands in that lane before the
+        // target, so an attractor placed upstream of it pulls the probe into it; it has to act after the obstacle.
+        // The placement area stops short of the target (no placing it on or beside the target).
+        hints(shape_level("shp-2", "Recover", "The current drifts the probe below the target. Draw it back with a source.",
+            Field::new().fixed(uni(1.0, -0.08)),
+            vec![Region::target(3.8, 1.2, 0.7), Region::hazard(0.2, 1.2, 0.5)],
+            shape_rules(0, vec![Zone::Rect(Rect::new(-1.0, 0.2, 2.8, 2.2))], vec![SourceKind::Repeller, SourceKind::Attractor], 1)),
+            &[
+                "Launch with nothing placed: the drift carries the probe past the target. Which way does it have to be moved?",
+                "An attractor pulls the flow toward itself, so a probe passing near it is drawn sideways toward it. Place one and watch how the arrows around it change.",
+                "A pull does not know about the obstacle. Check what lies between your source and the target, and where the probe will be while the pull acts.",
+            ]),
+        // Turn: an obstacle sits right on the stream and the target straight behind it. A repeller or attractor
+        // moves the path to one side for good, so the probe misses the target. A swirl pushes it sideways on the way
+        // in and back on the way out: a bump in the path, no net shift. The swirl has to sit beside the path, close
+        // to the obstacle, and which way it turns decides which side the bump goes. The stream is slower (0.7), so a
+        // source has time to move the probe.
+        hints(shape_level("shp-3", "Turn", "The obstacle is on the stream and the target is right behind it. Get past it and come back.",
+            Field::new().fixed(uni(0.7, 0.0)),
+            vec![Region::target(4.5, 0.0, 0.5), Region::hazard(0.0, 0.0, 0.55)],
+            shape_rules(0, vec![Zone::Rect(Rect::new(-2.2, -1.8, 2.2, 1.8))], vec![SourceKind::Repeller, SourceKind::Attractor, SourceKind::SwirlCcw, SourceKind::SwirlCw], 1)),
+            &[
+                "Try a repeller and an attractor beside the path. The probe goes around, but does it come back to the line of the target?",
+                "A swirl pushes the flow around itself rather than away or toward it. Look at which way its arrows point on the side where the probe arrives, and on the side where it leaves.",
+                "Which way the swirl turns decides which way it pushes the probe first. The probe has to be moved clear of the obstacle while it passes it.",
+            ]),
+        // Compose: the target is higher than one source can lift the probe (a source is felt out to about 1.9). Two
+        // sources must act in turn: the first lifts the probe into the reach of the second, so where the second can
+        // go depends on where the first put the probe. No single source wins; of the pairs about 3% do.
+        hints(shape_level("shp-4", "Compose", "The target is higher than one source can reach. Use two, one after the other.",
+            Field::new().fixed(uni(1.0, 0.0)),
+            vec![Region::target(4.5, 2.8, 0.7), Region::hazard(-0.5, 0.0, 0.55)],
+            shape_rules(0, vec![Zone::Rect(Rect::new(-3.0, 0.3, 3.0, 3.2))], vec![SourceKind::Repeller, SourceKind::Attractor], 2)),
+            &[
+                "Place one source and launch. Where does it leave the probe, and is the target in reach from there?",
+                "The second source acts on the probe where the first left it, not where it started. Moving the first one changes where the second one can be useful.",
+                "The fields add. Each source only matters near the path, so the order along the stream matters too.",
+            ]),
+    ]
+}
+
 pub fn all() -> Vec<Level> {
     let mut v = position_levels();
     v.extend(predict_levels());
@@ -451,6 +524,7 @@ pub fn all() -> Vec<Level> {
     v.extend(experiment_levels());
     v.extend(steer_levels());
     v.extend(survey_levels());
+    v.extend(shape_levels());
     v.extend(combo_levels());
     v
 }

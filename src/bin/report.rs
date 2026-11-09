@@ -1,5 +1,5 @@
 //! `cargo run --release --bin report [-- --detail]` prints automated validation per level.
-//! `-- --steer` and `-- --survey` print the full Markdown reports for those mechanics.
+//! `-- --steer`, `-- --survey` and `-- --shape` print the full Markdown reports for those mechanics.
 use vfield::modes::experiment;
 use vfield::sim::Outcome;
 use vfield::{levels, validate, Rules};
@@ -7,6 +7,10 @@ use vfield::{levels, validate, Rules};
 fn main() {
     if std::env::args().any(|a| a == "--steer") {
         print!("{}", vfield::validate_steer::report(&levels::steer_levels()));
+        return;
+    }
+    if std::env::args().any(|a| a == "--shape") {
+        print!("{}", vfield::validate_shape::report(&levels::shape_levels()));
         return;
     }
     if std::env::args().any(|a| a == "--survey") {

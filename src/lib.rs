@@ -8,6 +8,7 @@ pub mod modes;
 pub mod save;
 pub mod sim;
 pub mod validate;
+pub mod validate_shape;
 pub mod validate_steer;
 pub mod validate_survey;
 

@@ -10,10 +10,11 @@ pub enum Chapter {
     Experiment,
     Steer,
     Survey,
+    Shape,
     Combo,
 }
 impl Chapter {
-    pub const ALL: [Chapter; 7] = [Chapter::Position, Chapter::Predict, Chapter::Tempo, Chapter::Experiment, Chapter::Steer, Chapter::Survey, Chapter::Combo];
+    pub const ALL: [Chapter; 8] = [Chapter::Position, Chapter::Predict, Chapter::Tempo, Chapter::Experiment, Chapter::Steer, Chapter::Survey, Chapter::Shape, Chapter::Combo];
     pub fn name(self) -> &'static str {
         match self {
             Chapter::Position => "Position",
@@ -22,6 +23,7 @@ impl Chapter {
             Chapter::Experiment => "Experiment",
             Chapter::Steer => "Steer",
             Chapter::Survey => "Survey",
+            Chapter::Shape => "Shape",
             Chapter::Combo => "Combinations",
         }
     }
@@ -33,6 +35,7 @@ impl Chapter {
             Chapter::Experiment => "How does the system behave?",
             Chapter::Steer => "What should I do next?",
             Chapter::Survey => "Where is the hidden source?",
+            Chapter::Shape => "How should I change the field?",
             Chapter::Combo => "Mix what you have learned.",
         }
     }
@@ -194,6 +197,14 @@ pub enum Rules {
     ///
     /// `goal`: what completes the level (see `SurveyGoal`).
     Survey { zone: Zone, free: V2, scouts: usize, k: f64, sigma: f64, tol: f64, rays: bool, band: bool, preview: bool, pool: Vec<V2>, kinds: Vec<SourceKind>, partners: Vec<Option<V2>>, goal: SurveyGoal },
+    /// Shape the field. The background (`Level::field`), the probe's start, the obstacles and the target
+    /// (`Level::regions`) are fixed and fully visible. The player places up to `sources` local sources of the
+    /// permitted `kinds` (all with strength `k` and width `sigma`: the same Gaussian profile a Survey source has,
+    /// `SourceKind::term`) inside `zones`, then launches the probe; the probe flies the *combined* field and must
+    /// reach region `goal`. A source cannot be placed on a target or an obstacle, nor within `MIN_SEPARATION` of
+    /// another source. Sources can be moved and removed freely between launches, and launching is free and
+    /// repeatable: the only way to see a path is to fly it (there is no preview).
+    Shape { start: V2, goal: usize, zones: Vec<Zone>, kinds: Vec<SourceKind>, sources: usize, k: f64, sigma: f64 },
     /// Choose the launch phase of a periodic field.
     Tempo { start: V2, period: f64, goal: usize },
     /// Probe the intensity knob, then report the rule you found.

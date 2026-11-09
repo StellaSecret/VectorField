@@ -590,6 +590,94 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - one source is hidden per attempt
   - hidden positions: (-3, 1), (2.5, -0.5), (0.5, 2), (1, -1.5), (-1.5, 2.5), (3.5, -1.5)
 
+## shp-1 - Deflect (Shape)
+
+- objective: Place a repeller so the flow carries the probe around the obstacle and onto the target.
+- hint 1: Press Launch before placing anything: the probe flies the field as it is, and you see where it goes wrong.
+- hint 2: A repeller pushes the flow away from itself, so the probe is pushed away from wherever you put it. The arrows redraw as you move it.
+- hint 3: A source only changes the path while the probe is near it. Think about which side of the path the push has to come from, and whether it has to act before or after the obstacle.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 25 s; seed: 309816312
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1, 0)
+- regions:
+  0. target 'T' centre (4.5, 1.3) radius 0.7
+  1. hazard 'X' centre (-0.5, 0) radius 0.6
+- rules:
+  - mechanic: **Shape**
+  - the field layers above are the fixed background; the player adds sources to them
+  - probe starts at (-5, 0); it must reach region 0 (T), and any hazard ends the run
+  - source kinds offered: repeller
+  - up to 1 source(s), each with strength k = 1.65 and width sigma = 0.8 (Gauss terms); none on a target or obstacle, none within 0.5 of another
+  - placement areas: rectangle x in [-4, 3], y in [-3, 3]
+  - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
+  - run time limit: 25 s
+
+## shp-2 - Recover (Shape)
+
+- objective: The current drifts the probe below the target. Draw it back with a source.
+- hint 1: Launch with nothing placed: the drift carries the probe past the target. Which way does it have to be moved?
+- hint 2: An attractor pulls the flow toward itself, so a probe passing near it is drawn sideways toward it. Place one and watch how the arrows around it change.
+- hint 3: A pull does not know about the obstacle. Check what lies between your source and the target, and where the probe will be while the pull acts.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 25 s; seed: 309816313
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1, -0.08)
+- regions:
+  0. target 'T' centre (3.8, 1.2) radius 0.7
+  1. hazard 'X' centre (0.2, 1.2) radius 0.5
+- rules:
+  - mechanic: **Shape**
+  - the field layers above are the fixed background; the player adds sources to them
+  - probe starts at (-5, 0); it must reach region 0 (T), and any hazard ends the run
+  - source kinds offered: repeller, attractor
+  - up to 1 source(s), each with strength k = 1.65 and width sigma = 0.8 (Gauss terms); none on a target or obstacle, none within 0.5 of another
+  - placement areas: rectangle x in [-1, 2.8], y in [0.2, 2.2]
+  - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
+  - run time limit: 25 s
+
+## shp-3 - Turn (Shape)
+
+- objective: The obstacle is on the stream and the target is right behind it. Get past it and come back.
+- hint 1: Try a repeller and an attractor beside the path. The probe goes around, but does it come back to the line of the target?
+- hint 2: A swirl pushes the flow around itself rather than away or toward it. Look at which way its arrows point on the side where the probe arrives, and on the side where it leaves.
+- hint 3: Which way the swirl turns decides which way it pushes the probe first. The probe has to be moved clear of the obstacle while it passes it.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 25 s; seed: 309816314
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (0.7, 0)
+- regions:
+  0. target 'T' centre (4.5, 0) radius 0.5
+  1. hazard 'X' centre (0, 0) radius 0.55
+- rules:
+  - mechanic: **Shape**
+  - the field layers above are the fixed background; the player adds sources to them
+  - probe starts at (-5, 0); it must reach region 0 (T), and any hazard ends the run
+  - source kinds offered: repeller, attractor, swirl CCW, swirl CW
+  - up to 1 source(s), each with strength k = 1.65 and width sigma = 0.8 (Gauss terms); none on a target or obstacle, none within 0.5 of another
+  - placement areas: rectangle x in [-2.2, 2.2], y in [-1.8, 1.8]
+  - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
+  - run time limit: 25 s
+
+## shp-4 - Compose (Shape)
+
+- objective: The target is higher than one source can reach. Use two, one after the other.
+- hint 1: Place one source and launch. Where does it leave the probe, and is the target in reach from there?
+- hint 2: The second source acts on the probe where the first left it, not where it started. Moving the first one changes where the second one can be useful.
+- hint 3: The fields add. Each source only matters near the path, so the order along the stream matters too.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 25 s; seed: 309816315
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1, 0)
+- regions:
+  0. target 'T' centre (4.5, 2.8) radius 0.7
+  1. hazard 'X' centre (-0.5, 0) radius 0.55
+- rules:
+  - mechanic: **Shape**
+  - the field layers above are the fixed background; the player adds sources to them
+  - probe starts at (-5, 0); it must reach region 0 (T), and any hazard ends the run
+  - source kinds offered: repeller, attractor
+  - up to 2 source(s), each with strength k = 1.65 and width sigma = 0.8 (Gauss terms); none on a target or obstacle, none within 0.5 of another
+  - placement areas: rectangle x in [-3, 3], y in [0.3, 3.2]
+  - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
+  - run time limit: 25 s
+
 ## cmb-1 - Through the Gate (Combinations)
 
 - objective: Position + corridor: pass the gate, then reach the target.

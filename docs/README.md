@@ -16,11 +16,12 @@ when the player does X" and "what exactly can the player do", with enough detail
 | [05-experiment.md](05-experiment.md) | **Experiment**: "How does the system behave?" |
 | [06-steer.md](06-steer.md) | **Steer**: "What should I do next?" |
 | [07-combinations.md](07-combinations.md) | How the six combination levels compose the mechanics |
-| [08-comparison.md](08-comparison.md) | The six mechanics side by side, and how they differ |
+| [08-comparison.md](08-comparison.md) | The seven mechanics side by side, and how they differ |
 | [09-survey.md](09-survey.md) | **Survey**: "Where is the hidden source?" |
+| [10-shape.md](10-shape.md) | **Shape**: "How should I change the field?" |
 | [DESIGN.md](DESIGN.md) | The design rationale: architecture, why each mechanic exists, how levels were validated |
 | [LEVEL_CATALOG.md](LEVEL_CATALOG.md) | **Generated**: every parameter of every level (fields, regions, rules) |
-| [STEER_VALIDATION.md](STEER_VALIDATION.md), [SURVEY_VALIDATION.md](SURVEY_VALIDATION.md) | **Generated**: the Steer and Survey validation reports (`cargo run --release --bin report -- --steer` / `-- --survey`) |
+| [STEER_VALIDATION.md](STEER_VALIDATION.md), [SURVEY_VALIDATION.md](SURVEY_VALIDATION.md), [SHAPE_VALIDATION.md](SHAPE_VALIDATION.md) | **Generated**: the Steer, Survey and Shape validation reports (`cargo run --release --bin report -- --steer` / `-- --survey` / `-- --shape`) |
 
 ## How each mechanic document is organised
 
@@ -43,7 +44,7 @@ Every mechanic document follows the same sections, so they can be compared direc
 - "Tested by `name`" refers to a test in `tests/` or a unit test in `src/`.
 - **What is enforced.** `LEVEL_CATALOG.md` is rendered from the level data by `cargo run --release --bin catalog`, and a test
   (`tests/docs.rs`) fails when it is stale. The other documents are not checked against the code; statistics come from
-  `cargo run --release --bin report` (and `-- --steer`, `-- --survey`) on this version of the code. If you change behaviour, update the
+  `cargo run --release --bin report` (and `-- --steer`, `-- --survey`, `-- --shape`) on this version of the code. If you change behaviour, update the
   matching document.
 - Units: positions are in world units, durations in seconds, angles in radians. World x points right, y points up.
   (The screen y axis points down; the interface converts.)
