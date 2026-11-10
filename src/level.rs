@@ -11,10 +11,11 @@ pub enum Chapter {
     Steer,
     Survey,
     Shape,
+    Synchronize,
     Combo,
 }
 impl Chapter {
-    pub const ALL: [Chapter; 8] = [Chapter::Position, Chapter::Predict, Chapter::Tempo, Chapter::Experiment, Chapter::Steer, Chapter::Survey, Chapter::Shape, Chapter::Combo];
+    pub const ALL: [Chapter; 9] = [Chapter::Position, Chapter::Predict, Chapter::Tempo, Chapter::Experiment, Chapter::Steer, Chapter::Survey, Chapter::Shape, Chapter::Synchronize, Chapter::Combo];
     pub fn name(self) -> &'static str {
         match self {
             Chapter::Position => "Position",
@@ -24,6 +25,7 @@ impl Chapter {
             Chapter::Steer => "Steer",
             Chapter::Survey => "Survey",
             Chapter::Shape => "Shape",
+            Chapter::Synchronize => "Synchronize",
             Chapter::Combo => "Combinations",
         }
     }
@@ -36,6 +38,7 @@ impl Chapter {
             Chapter::Steer => "What should I do next?",
             Chapter::Survey => "Where is the hidden source?",
             Chapter::Shape => "How should I change the field?",
+            Chapter::Synchronize => "How must these probes be coordinated?",
             Chapter::Combo => "Mix what you have learned.",
         }
     }
@@ -167,6 +170,26 @@ pub enum SurveyGoal {
     EachKind,
 }
 
+/// A timing relationship between two probes: probe `b` must *enter* region `rb` between `lo` and `hi` seconds after
+/// probe `a` enters region `ra`. With `ra == rb` and `lo = -w, hi = w` it is a rendezvous within `w` at that region;
+/// with `0 < lo < hi` it is "b arrives shortly after a"; with different regions it orders two checkpoints, one on each
+/// route. A region can be a gate in the middle of a route or the final target.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SyncCond {
+    pub a: usize,
+    pub ra: usize,
+    pub b: usize,
+    pub rb: usize,
+    pub lo: f64,
+    pub hi: f64,
+}
+impl SyncCond {
+    /// The common case: both probes at one region.
+    pub const fn meet(a: usize, b: usize, region: usize, lo: f64, hi: f64) -> SyncCond {
+        SyncCond { a, ra: region, b, rb: region, lo, hi }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Rules {
     /// Choose release position(s). Optional phase / shared-intensity controls are for combination levels.
@@ -205,6 +228,12 @@ pub enum Rules {
     /// another source. Sources can be moved and removed freely between launches, and launching is free and
     /// repeatable: the only way to see a path is to fly it (there is no preview).
     Shape { start: V2, goal: usize, zones: Vec<Zone>, kinds: Vec<SourceKind>, sources: usize, k: f64, sigma: f64 },
+    /// Coordinate several probes. Every probe has a fixed start and flies the same fixed field (`Level::field`,
+    /// periodic in most levels, `period`); the player chooses only *when each one is released*, a delay between 0 and
+    /// `max_delay` (the field clock at release, as in Tempo). Every probe must reach its goal region (`goals[i]`, passing
+    /// every gate), and every condition in `conds` must hold. The relationship between the probes, not any one probe,
+    /// decides success.
+    Synchronize { starts: Vec<V2>, goals: Vec<usize>, period: f64, max_delay: f64, conds: Vec<SyncCond> },
     /// Choose the launch phase of a periodic field.
     Tempo { start: V2, period: f64, goal: usize },
     /// Probe the intensity knob, then report the rule you found.

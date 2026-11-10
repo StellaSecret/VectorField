@@ -9,9 +9,10 @@ pub mod save;
 pub mod sim;
 pub mod validate;
 pub mod validate_shape;
+pub mod validate_sync;
 pub mod validate_steer;
 pub mod validate_survey;
 
 pub use field::{v2, Field, Layer, SourceKind, Term, V2};
-pub use level::{Chapter, Challenge, GustDirs, Level, Reveal, Rules, Slot, SurveyGoal, Zone};
+pub use level::{Chapter, Challenge, GustDirs, Level, Reveal, Rules, Slot, SurveyGoal, SyncCond, Zone};
 pub use sim::{simulate, Outcome, Rect, Region, RegionKind, SimConfig, Trajectory};

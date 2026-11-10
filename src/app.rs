@@ -5,6 +5,7 @@ use macroquad::prelude::*;
 use std::collections::HashSet;
 use vfield::modes::steer::Run as SteerRun;
 use vfield::modes::*;
+use vfield::modes::{SyncCondResult, SyncFlight, SyncSpec, SYNC_DELAY_STEP};
 use vfield::save::Save;
 use vfield::sim::{Outcome, Trajectory};
 use vfield::{levels, Chapter, GustDirs, Level, Reveal, Rules, SourceKind, SurveyGoal, V2};
@@ -80,6 +81,16 @@ struct St {
     // Survey
     tool: Tool,
     cur: V2,
+    // Synchronize
+    /// The clock of the field (seconds): loops when idle, runs from 0 during a playback.
+    sync_clock: f64,
+    sync_playing: bool,
+    /// Time at which the last flight's last probe has arrived (the playback ends a moment after).
+    sync_end: f64,
+    /// Show the last flight (its trails, bars and verdict)?
+    sync_show: bool,
+    /// The probe whose release the keyboard and the highlighted handle act on.
+    sync_sel: usize,
     // Shape
     /// The source being dragged, and the one Delete / the Remove button act on.
     drag: Option<usize>,
@@ -119,6 +130,7 @@ enum Game {
     Steer(SteerGame),
     Survey(SurveyGame),
     Shape(ShapeGame),
+    Sync(SyncGame),
     Position(PositionGame),
     Predict(PredictGame),
     Tempo(TempoGame),
@@ -130,6 +142,7 @@ impl Game {
             Game::Steer(g) => &g.level,
             Game::Survey(g) => &g.level,
             Game::Shape(g) => g.level(),
+            Game::Sync(g) => g.level(),
             Game::Position(g) => &g.level,
             Game::Predict(g) => &g.level,
             Game::Tempo(g) => &g.level,
@@ -141,6 +154,7 @@ impl Game {
             Game::Steer(g) => g.won,
             Game::Survey(g) => g.won,
             Game::Shape(g) => g.won,
+            Game::Sync(g) => g.won,
             Game::Position(g) => g.won,
             Game::Predict(g) => g.passed(),
             Game::Tempo(g) => g.won,
@@ -161,6 +175,7 @@ fn make_session(idx: usize, level: Level) -> Session {
         Rules::Steer { .. } => Game::Steer(SteerGame::new(level)),
         Rules::Survey { .. } => Game::Survey(SurveyGame::new(level)),
         Rules::Shape { .. } => Game::Shape(ShapeGame::new(level)),
+        Rules::Synchronize { .. } => Game::Sync(SyncGame::new(level)),
         Rules::Position { .. } => Game::Position(PositionGame::new(level)),
         Rules::Predict { .. } => Game::Predict(PredictGame::new(level)),
         Rules::Tempo { .. } => Game::Tempo(TempoGame::new(level)),
@@ -265,9 +280,9 @@ impl App {
             let hot = r.contains(inp.mouse) && unlocked;
             draw_rectangle(r.x, r.y, r.w, r.h, if hot { rgb(54, 62, 82) } else { rgb(36, 41, 56) });
             draw_rectangle_lines(r.x, r.y, r.w, r.h, 3.0, if unlocked { chapter_color(*c) } else { rgb(70, 74, 86) });
-            text_c(c.name(), r.x + r.w / 2.0, r.y + 40.0, if count > 7.0 { 22.0 } else if count > 6.0 { 26.0 } else { 30.0 }, if unlocked { WHITE } else { gray() });
-            wrap(c.question(), r.x + 14.0, r.y + 90.0, r.w - 28.0, if count > 7.0 { 18.0 } else if count > 6.0 { 20.0 } else { 22.0 }, gray());
-            text_c(&format!("{}/{} complete", n, ids.len()), r.x + r.w / 2.0, r.y + 250.0, 20.0, WHITE);
+            text_c(c.name(), r.x + r.w / 2.0, r.y + 40.0, if count > 8.0 { 18.0 } else if count > 7.0 { 22.0 } else if count > 6.0 { 26.0 } else { 30.0 }, if unlocked { WHITE } else { gray() });
+            wrap(c.question(), r.x + 14.0, r.y + 90.0, r.w - 28.0, if count > 8.0 { 16.0 } else if count > 7.0 { 18.0 } else if count > 6.0 { 20.0 } else { 22.0 }, gray());
+            text_c(&format!("{}/{} complete", n, ids.len()), r.x + r.w / 2.0, r.y + 250.0, if count > 8.0 { 16.0 } else { 20.0 }, WHITE);
             if !unlocked {
                 text_c("Locked", r.x + r.w / 2.0, r.y + 170.0, 22.0, bad_c());
                 wrap("Finish level 1 of the four mechanics.", r.x + 16.0, r.y + 200.0, r.w - 32.0, 16.0, gray());
@@ -278,14 +293,15 @@ impl App {
         }
         let lines = [
             "Mouse: click and drag.   Space / Enter: launch or confirm.   H: hint.   R: retry.   V: replay.   Esc: back.",
-            "G: arrow grid density.   K: high-contrast arrows.   U: unlock every level.   Survey: S scout, M marker, C commit.   Shape: 1-4 kind, P place, Del remove.",
+            "G: arrow grid density.   K: high-contrast arrows.   U: unlock every level.   Survey: S scout, M marker, C commit.",
+            "Shape: 1-4 kind, P place, Del remove.   Synchronize: drag a release handle on the timeline, or 1-3 and Left / Right.",
         ];
         for (i, l) in lines.iter().enumerate() {
-            text_c(l, W / 2.0, 570.0 + i as f32 * 28.0, 20.0, gray());
+            text_c(l, W / 2.0, 560.0 + i as f32 * 26.0, 19.0, gray());
         }
-        text_c(if self.prefs.unlock_all { "All levels unlocked" } else { "" }, W / 2.0, 640.0, 20.0, good_c());
+        text_c(if self.prefs.unlock_all { "All levels unlocked" } else { "" }, W / 2.0, 650.0, 20.0, good_c());
         if !self.save_ok {
-            text_c("Could not save your progress here (storage is blocked or full). It will be lost when you close the game.", W / 2.0, 668.0, 18.0, bad_c());
+            text_c("Could not save your progress here (storage is blocked or full). It will be lost when you close the game.", W / 2.0, 676.0, 18.0, bad_c());
         }
         next
     }
@@ -335,6 +351,7 @@ fn chapter_color(c: Chapter) -> Color {
         Chapter::Steer => rgb(213, 94, 0),
         Chapter::Survey => rgb(160, 130, 255),
         Chapter::Shape => rgb(150, 215, 120),
+        Chapter::Synchronize => rgb(90, 215, 205),
         Chapter::Combo => rgb(230, 159, 0),
     }
 }
@@ -389,6 +406,10 @@ fn do_retry(g: &mut Game, st: &mut St) {
             st.beat_t = 0.0;
             st.replay = None;
         }
+        Game::Sync(_) => {
+            st.sync_show = false;
+            st.sync_playing = false;
+        }
         Game::Survey(g) => {
             let _ = g.retry();
             st.tool = Tool::Scout;
@@ -410,6 +431,7 @@ fn retry_enabled(g: &Game, st: &St) -> bool {
         Game::Experiment(e) => !e.runs.is_empty(),
         Game::Steer(g) => !g.history.is_empty() && g.phase != Phase::Advancing && st.replay.is_none(),
         Game::Survey(g) => g.finished(),
+        Game::Sync(_) => st.sync_show && !st.sync_playing,
         _ => st.anim.is_some() || !st.msg.is_empty(),
     }
 }
@@ -432,6 +454,7 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
         Game::Steer(g) => steer_frame(g, &mut s.st, inp, prefs, dt),
         Game::Survey(g) => survey_frame(g, &mut s.st, inp, prefs),
         Game::Shape(g) => shape_frame(g, &mut s.st, inp, prefs),
+        Game::Sync(g) => sync_frame(g, &mut s.st, inp, prefs),
         Game::Position(g) => pos_frame(g, &mut s.st, inp, prefs),
         Game::Predict(g) => predict_frame(g, &mut s.st, inp, prefs),
         Game::Tempo(g) => tempo_frame(g, &mut s.st, inp, prefs, dt),
@@ -521,6 +544,7 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
         let detail = match &s.game {
             Game::Steer(g) => format!("Gusts used: {} of {}   Attempts: {}", g.run().gusts_used(), g.spec.budget, g.attempts + 1),
             Game::Survey(g) => format!("Attempts: {}   Scouts used last round: {} of {}", g.attempts(), g.round().paid(), g.spec.budget),
+            Game::Sync(g) => format!("Launches used: {}", g.flights.len()),
             Game::Shape(g) => format!("Launches used: {}   Sources in the winning field: {}", g.attempts.len(), g.attempts.last().map_or(0, |a| a.sources.len())),
             Game::Position(g) => format!("Launches used: {}", g.attempts.len()),
             Game::Predict(g) => format!("Forecasts correct: {} of {}", g.correct_count(), g.rounds.len()),
@@ -2265,6 +2289,260 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
             format!("The probe {}. Change the field and launch again.", shape_result(a.traj.outcome))
         };
     }
+}
+
+// ------------------------------------------------------------------ SYNCHRONIZE
+const SYNC_NAMES: [&str; 3] = ["A", "B", "C"];
+/// The playback runs this many times faster than the field clock.
+const SYNC_SPEED: f64 = 3.0;
+/// The timeline strip under the play area.
+const TL_Y: f32 = 726.0;
+const TL_LANE: f32 = 18.0;
+
+fn sync_color(i: usize) -> Color {
+    [rgb(86, 180, 233), rgb(240, 200, 60), rgb(204, 121, 167)][i % 3]
+}
+
+/// Seconds shown on the timeline: every release, plus time for the slowest flight.
+fn sync_axis(spec: &SyncSpec) -> f64 {
+    spec.max_delay + 10.0
+}
+fn sync_tx(spec: &SyncSpec, t: f64) -> f32 {
+    r::AX + (t / sync_axis(spec)) as f32 * r::AW
+}
+fn sync_t_at(spec: &SyncSpec, x: f32) -> f64 {
+    ((x - r::AX) / r::AW) as f64 * sync_axis(spec)
+}
+
+fn sync_region_word(l: &Level, region: usize) -> &'static str {
+    match l.regions[region].kind {
+        vfield::sim::RegionKind::Target => "the target",
+        _ => "the gate",
+    }
+}
+
+/// One condition in words: who got where, when, and whether that is allowed. Early and late are stated, the fix is not.
+fn sync_cond_text(l: &Level, c: &SyncCondResult) -> (String, bool) {
+    let (a, b) = (SYNC_NAMES[c.cond.a], SYNC_NAMES[c.cond.b]);
+    let (Some(off), Some(miss)) = (c.offset(), c.miss()) else {
+        let who = if c.at_a.is_none() { a } else { b };
+        let reg = if c.at_a.is_none() { c.cond.ra } else { c.cond.rb };
+        return (format!("Probe {who} never reached {}, so there is nothing to compare.", sync_region_word(l, reg)), false);
+    };
+    let allowed = if (c.cond.lo + c.cond.hi).abs() < 1e-9 { format!("within {:.1} s", c.cond.hi) } else { format!("{:.1} to {:.1} s after", c.cond.lo, c.cond.hi) };
+    let when = if off >= 0.0 { format!("{:.1} s after", off) } else { format!("{:.1} s before", -off) };
+    let place = if c.cond.ra == c.cond.rb {
+        format!("reached {}", sync_region_word(l, c.cond.rb))
+    } else {
+        format!("reached {} (probe {a} reached {})", sync_region_word(l, c.cond.rb), sync_region_word(l, c.cond.ra))
+    };
+    let verdict = if miss == 0.0 { "in sync".to_string() } else if miss > 0.0 { format!("{:.1} s too late", miss) } else { format!("{:.1} s too early", -miss) };
+    (format!("Probe {b} {place} {when} probe {a}; allowed {allowed}: {verdict}."), miss == 0.0)
+}
+
+fn sync_summary(g: &SyncGame, f: &SyncFlight) -> (String, bool) {
+    if f.success {
+        return ("Synchronized! Every condition holds.".into(), true);
+    }
+    for (i, ok) in f.reached.iter().enumerate() {
+        if !ok {
+            return (format!("Probe {} {}. Release it at another time.", SYNC_NAMES[i], shape_result(f.trajs[i].outcome)), false);
+        }
+    }
+    let bad = f.conds.iter().find(|c| !c.ok()).expect("a failed flight has a failed condition");
+    (sync_cond_text(g.level(), bad).0, false)
+}
+
+fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
+    let lvl = g.level().clone();
+    let spec = g.spec.clone();
+    let n = spec.probes();
+    let dt = get_frame_time() as f64;
+    let accent = chapter_color(Chapter::Synchronize);
+
+    // ---- the field clock and the playback
+    if st.sync_playing {
+        st.sync_clock += dt * SYNC_SPEED;
+        if st.sync_clock >= st.sync_end + 0.8 {
+            st.sync_playing = false;
+            st.sync_clock = 0.0;
+            if let Some(f) = g.flights.last() {
+                let (m, good) = sync_summary(g, f);
+                st.msg = m;
+                st.good = Some(good);
+            }
+        }
+    } else {
+        st.sync_clock = (st.sync_clock + dt) % spec.period;
+    }
+    let playing = st.sync_playing;
+
+    // ---- input
+    if !playing {
+        for (i, key) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3].iter().enumerate() {
+            if i < n && is_key_pressed(*key) {
+                st.sync_sel = i;
+            }
+        }
+        st.sync_sel = st.sync_sel.min(n - 1);
+        let big = is_key_down(KeyCode::LeftShift) || is_key_down(KeyCode::RightShift);
+        let by = if big { 0.5 } else { 0.1 };
+        if is_key_pressed(KeyCode::Left) {
+            g.nudge(st.sync_sel, -by);
+        }
+        if is_key_pressed(KeyCode::Right) {
+            g.nudge(st.sync_sel, by);
+        }
+        // dragging a release handle on the timeline
+        let lane_of = |y: f32| -> Option<usize> { (0..n).find(|i| y >= TL_Y + 18.0 + *i as f32 * TL_LANE - 2.0 && y < TL_Y + 18.0 + (*i as f32 + 1.0) * TL_LANE) };
+        if inp.pressed {
+            if let Some(i) = lane_of(inp.mouse.y).filter(|_| inp.mouse.x >= r::AX && inp.mouse.x <= r::AX + r::AW) {
+                st.drag = Some(i);
+                st.sync_sel = i;
+            }
+        }
+        if let Some(i) = st.drag {
+            if inp.down {
+                g.set_delay(i, sync_t_at(&spec, inp.mouse.x));
+            } else {
+                st.drag = None;
+            }
+        }
+    }
+
+    // ---- drawing: the field at the field clock, the regions, the starts
+    r::begin_area();
+    r::draw_field(&lvl.field, st.sync_clock, prefs.grid, prefs.hc);
+    for reg in &lvl.regions {
+        r::draw_region(reg, false);
+    }
+    for (i, s) in spec.starts.iter().enumerate() {
+        r::draw_start(*s);
+        let p = r::w2s(*s);
+        text(SYNC_NAMES[i], p.x - 5.0, p.y - 18.0, 20.0, sync_color(i));
+    }
+    if let Some(f) = g.flights.last().filter(|_| st.sync_show) {
+        for (i, t) in f.trajs.iter().enumerate() {
+            let c = sync_color(i);
+            if playing {
+                let local = st.sync_clock - f.delays[i];
+                if local < 0.0 {
+                    continue; // still waiting at its start
+                }
+                r::draw_path(&t.upto(local), c, 3.5);
+                if local < t.duration() {
+                    r::draw_probe(t.pos_at(local), c);
+                } else {
+                    r::draw_marker_end(t.end(), c, SYNC_NAMES[i]);
+                }
+            } else {
+                r::draw_path(&t.points, alpha(c, 0.75), 3.0);
+                r::draw_marker_end(t.end(), c, SYNC_NAMES[i]);
+            }
+        }
+    }
+    r::end_area();
+
+    // ---- the timeline strip
+    draw_rectangle(r::AX, TL_Y, r::AW, 74.0, rgb(24, 28, 38));
+    draw_rectangle_lines(r::AX, TL_Y, r::AW, 74.0, 1.5, rgb(70, 76, 94));
+    let mut t = 0.0;
+    while t <= sync_axis(&spec) + 1e-9 {
+        let x = sync_tx(&spec, t);
+        let cycle = (t / spec.period).fract().abs() < 1e-9 || ((t / spec.period).fract() - 1.0).abs() < 1e-9;
+        draw_line(x, TL_Y + if cycle { 2.0 } else { 10.0 }, x, TL_Y + 16.0, if cycle { 2.0 } else { 1.0 }, rgb(120, 128, 150));
+        if (t as i64) % 2 == 0 && t.fract() == 0.0 {
+            text(&format!("{}", t as i64), x - 4.0, TL_Y + 14.0, 12.0, gray());
+        }
+        t += 1.0;
+    }
+    text("seconds (field clock); long ticks mark each cycle", r::AX + r::AW - 330.0, TL_Y + 14.0, 12.0, gray());
+    let flight = g.flights.last().filter(|_| st.sync_show).cloned();
+    for i in 0..n {
+        let y = TL_Y + 18.0 + i as f32 * TL_LANE;
+        let c = sync_color(i);
+        draw_rectangle(r::AX + 1.0, y, r::AW - 2.0, TL_LANE - 3.0, rgb(33, 38, 52));
+        if let Some(f) = flight.as_ref() {
+            let stale = f.delays[i] != g.delays[i];
+            // the allowed band for this probe, placed by the flight that just happened (not by the answer)
+            for cr in f.conds.iter().filter(|cr| cr.cond.b == i) {
+                if let Some(a) = cr.at_a {
+                    let (x0, x1) = (sync_tx(&spec, a + cr.cond.lo), sync_tx(&spec, a + cr.cond.hi));
+                    draw_rectangle(x0, y, (x1 - x0).max(2.0), TL_LANE - 3.0, if cr.ok() { alpha(good_c(), 0.30) } else { alpha(r::c_hazard(), 0.28) });
+                }
+            }
+            let x0 = sync_tx(&spec, f.delays[i]);
+            let end = f.delays[i] + f.trajs[i].duration();
+            let x1 = sync_tx(&spec, end);
+            draw_rectangle(x0, y + 4.0, (x1 - x0).max(1.0), 5.0, alpha(c, if stale { 0.25 } else { 0.7 }));
+            if f.reached[i] {
+                draw_line(x1, y, x1, y + TL_LANE - 3.0, 2.5, if stale { alpha(WHITE, 0.4) } else { WHITE });
+                text(&format!("{:.1}", end), x1 + 4.0, y + 12.0, 13.0, if stale { gray() } else { WHITE });
+            }
+        }
+        // the release handle: where this probe is set to leave
+        let hx = sync_tx(&spec, g.delays[i]);
+        draw_rectangle(hx - 5.0, y - 1.0, 10.0, TL_LANE - 1.0, c);
+        if st.sync_sel == i {
+            draw_rectangle_lines(hx - 7.0, y - 3.0, 14.0, TL_LANE + 3.0, 2.0, WHITE);
+        }
+        text(SYNC_NAMES[i], r::AX + 6.0, y + 12.0, 14.0, c);
+    }
+    let cx = sync_tx(&spec, if playing { st.sync_clock } else { st.sync_clock });
+    draw_line(cx, TL_Y + 16.0, cx, TL_Y + 74.0, 1.5, alpha(accent, 0.8));
+
+    // ---- panel
+    let mut y = panel_header(&lvl);
+    y = wrap("Choose when each probe leaves, then launch them together. They fly the same field.", PX0, y + 8.0, PW, 16.0, gray());
+    y += 8.0;
+    for i in 0..n {
+        let hot = !playing && Rect::new(PX0, y, PW, 30.0).contains(inp.mouse);
+        let sel = st.sync_sel == i;
+        draw_rectangle(PX0, y, PW, 30.0, if sel { alpha(sync_color(i), 0.28) } else if hot { rgb(54, 62, 82) } else { rgb(36, 41, 56) });
+        draw_rectangle_lines(PX0, y, PW, 30.0, 2.0, if sel { sync_color(i) } else { rgb(70, 74, 86) });
+        draw_circle(PX0 + 16.0, y + 15.0, 7.0, sync_color(i));
+        text(&format!("{}  leaves at {:.1} s", SYNC_NAMES[i], g.delays[i]), PX0 + 32.0, y + 21.0, 18.0, WHITE);
+        if hot && inp.pressed && inp.mouse.x < PX0 + PW - 60.0 {
+            st.sync_sel = i;
+        }
+        if ui::button(inp, Rect::new(PX0 + PW - 56.0, y + 3.0, 24.0, 24.0), "-", !playing, rgb(90, 96, 118)) {
+            st.sync_sel = i;
+            g.nudge(i, -SYNC_DELAY_STEP);
+        }
+        if ui::button(inp, Rect::new(PX0 + PW - 28.0, y + 3.0, 24.0, 24.0), "+", !playing, rgb(90, 96, 118)) {
+            st.sync_sel = i;
+            g.nudge(i, SYNC_DELAY_STEP);
+        }
+        y += 34.0;
+    }
+    y += 6.0;
+    let go = ui::button(inp, Rect::new(PX0, y, PW, 44.0), "Launch (Space)", !playing, accent);
+    text(&format!("Launches: {}", g.flights.len()), PX0, y + 66.0, 18.0, gray());
+    if (go || space()) && !playing {
+        let f = g.launch().clone();
+        st.sync_end = f.trajs.iter().zip(&f.delays).map(|(t, d)| d + t.duration()).fold(0.0, f64::max);
+        st.sync_clock = 0.0;
+        st.sync_playing = true;
+        st.sync_show = true;
+        st.msg.clear();
+        st.good = None;
+    }
+    if is_key_pressed(KeyCode::V) && !g.flights.is_empty() && !playing {
+        st.sync_end = g.flights.last().map_or(0.0, |f| f.trajs.iter().zip(&f.delays).map(|(t, d)| d + t.duration()).fold(0.0, f64::max));
+        st.sync_clock = 0.0;
+        st.sync_playing = true;
+        st.sync_show = true;
+        st.msg.clear();
+    }
+    // what the last flight showed, condition by condition (after the playback)
+    if let (Some(f), false) = (flight.as_ref(), playing) {
+        let mut yy = y + 90.0;
+        for c in &f.conds {
+            let (msg, ok) = sync_cond_text(&lvl, c);
+            yy = wrap(&msg, PX0, yy, PW, 15.0, if ok { good_c() } else { alpha(r::c_hazard(), 1.0) }) + 4.0;
+        }
+    }
+    text("Drag a handle on the timeline, or click a probe and use Left / Right (Shift: 0.5 s).  1-3 select a probe.  V replays.", r::AX, r::AY + r::AH + 4.0, 13.0, gray());
 }
 
 #[cfg(test)]

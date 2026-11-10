@@ -232,7 +232,8 @@ fn the_front_end_computes_a_path_only_when_the_launch_button_is_used() {
     // behind the button) and nothing else that flies a probe.
     let app = include_str!("../src/app.rs");
     let start = app.find("fn shape_frame").expect("shape_frame");
-    let end = app[start..].find("#[cfg(test)]").map(|i| start + i).unwrap_or(app.len());
+    // the Shape frame ends where the next section of the file begins
+    let end = ["// ------------------------------------------------------------------ SYNCHRONIZE", "#[cfg(test)]"].iter().filter_map(|m| app[start..].find(m)).min().map(|i| start + i).unwrap_or(app.len());
     let body = &app[start..end];
     for forbidden in [".fly(", ".fly_charted(", "simulate(", ".run(&", "level.run", "sim::simulate"] {
         assert!(!body.contains(forbidden), "shape_frame calls {forbidden}: that would preview a path");

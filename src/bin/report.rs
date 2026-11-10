@@ -9,6 +9,10 @@ fn main() {
         print!("{}", vfield::validate_steer::report(&levels::steer_levels()));
         return;
     }
+    if std::env::args().any(|a| a == "--sync") {
+        print!("{}", vfield::validate_sync::report(&levels::sync_levels()));
+        return;
+    }
     if std::env::args().any(|a| a == "--shape") {
         print!("{}", vfield::validate_shape::report(&levels::shape_levels()));
         return;

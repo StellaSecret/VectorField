@@ -96,6 +96,7 @@ pub fn solvable(level: &Level) -> bool {
         Rules::Steer { .. } => crate::validate_steer::enumerate(&crate::modes::SteerSpec::from_level(level)).successes > 0,
         Rules::Survey { .. } => crate::validate_survey::solvable(level),
         Rules::Shape { .. } => crate::validate_shape::solvable(level),
+        Rules::Synchronize { .. } => crate::validate_sync::solvable(level),
     }
 }
 
@@ -154,6 +155,7 @@ pub fn summarize(level: &Level) -> String {
         }
         Rules::Survey { .. } => crate::validate_survey::summarize(level),
         Rules::Shape { .. } => crate::validate_shape::summarize(level),
+        Rules::Synchronize { .. } => crate::validate_sync::summarize(level),
     }
 }
 

@@ -38,6 +38,7 @@ fn simulation_is_deterministic_for_every_level() {
             Rules::Predict { zone, .. } => zone.center() + v2(0.3, 0.2),
             Rules::Tempo { start, .. } | Rules::Experiment { start, .. } | Rules::Steer { start, .. } | Rules::Shape { start, .. } => *start,
             Rules::Survey { free, .. } => *free,
+            Rules::Synchronize { starts, .. } => starts[0],
         };
         let a = l.run(&l.field, start, 1.7);
         let b = l.run(&l.field, start, 1.7);

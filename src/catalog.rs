@@ -90,6 +90,21 @@ fn rules(l: &Level) -> Vec<String> {
             };
             vec!["mechanic: **Experiment**".to_string(), format!("fixed start {}", v(*start)), format!("intensity range [{}, {}]", n(range.0), n(range.1)), format!("challenge: {}", ch)]
         }
+        Rules::Synchronize { starts, goals, period, max_delay, conds } => {
+            let mut lines = vec![
+                "mechanic: **Synchronize**".to_string(),
+                format!("{} probes fly the same field; the player chooses only each probe's release delay (0 to {} s, in steps of {} s; the field clock at release)", starts.len(), n(*max_delay), n(crate::modes::SYNC_DELAY_STEP)),
+                format!("field period {} s", n(*period)),
+            ];
+            for (i, (s, g)) in starts.iter().zip(goals).enumerate() {
+                lines.push(format!("probe {} starts at {} and must reach region {} ({})", i, v(*s), g, l.regions[*g].label));
+            }
+            for c in conds {
+                lines.push(format!("condition: probe {} must enter region {} ({}) between {:+} and {:+} s after probe {} enters region {} ({})", c.b, c.rb, l.regions[c.rb].label, n(c.lo), n(c.hi), c.a, c.ra, l.regions[c.ra].label));
+            }
+            lines.push(format!("run time limit: {} s per probe", n(l.max_time)));
+            lines
+        }
         Rules::Shape { start, goal, zones, kinds, sources, k, sigma } => vec![
             "mechanic: **Shape**".to_string(),
             "the field layers above are the fixed background; the player adds sources to them".to_string(),

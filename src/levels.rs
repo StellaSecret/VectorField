@@ -517,6 +517,92 @@ pub fn shape_levels() -> Vec<Level> {
     ]
 }
 
+/// Synchronize levels. Every probe is released at a delay in 0..=12 s (one field period, the same clock as Tempo), in
+/// steps of 0.1 s, into the same fixed field; the player chooses nothing else.
+///
+/// Why the fields are what they are (measured with `validate_sync`, see docs/11-synchronize.md):
+/// - a *static* field (level 1) makes a probe's travel time independent of its release: success depends only on the
+///   difference of the delays, a subtraction. It is kept as the on-ramp and is not by itself a distinct mechanic;
+/// - a field with a *local periodic push* on each probe's route (levels 2 and 3) lets a probe reach the target only if
+///   it passes the push at the right phase, so each probe can arrive only during certain times and the two sets of
+///   possible arrival times have to be matched: the probes cannot be solved one at a time;
+/// - a field whose *speed pulses* (levels 4 and 5) makes the time between two places depend on when a probe passes
+///   them, so what happens at the gate and what happens at the target are two different conditions on the same delays.
+fn mgauss(x: f64, y: f64, phase: f64) -> Term {
+    Term::Modulated { inner: Box::new(Term::Gauss { c: v2(x, y), k: SHAPE_K, sigma: SHAPE_SIGMA }), offset: 0.0, amp: 1.0, omega: TAU / T12, phase }
+}
+fn pulses() -> Field {
+    let w = TAU / T12;
+    Field::new()
+        .fixed(uni(1.0, 0.0))
+        .fixed(Term::Modulated { inner: Box::new(uni(1.2, 0.0)), offset: 0.0, amp: 0.8, omega: w, phase: 0.0 })
+        .fixed(Term::Modulated { inner: Box::new(uni(0.0, 1.0)), offset: 0.0, amp: 0.8, omega: w, phase: 2.0 })
+        .fixed(radial(4.5, 0.0, -5.0, 1.0))
+}
+fn sync_rules(starts: Vec<V2>, conds: Vec<SyncCond>) -> Rules {
+    let goals = vec![0; starts.len()];
+    Rules::Synchronize { starts, goals, period: T12, max_delay: T12, conds }
+}
+fn sync_level(id: &'static str, title: &'static str, objective: &'static str, field: Field, regions: Vec<Region>, rules: Rules) -> Level {
+    let mut l = base(id, Chapter::Synchronize, title, objective, field, regions, rules);
+    l.max_time = 20.0;
+    l
+}
+
+pub fn sync_levels() -> Vec<Level> {
+    let windows = |phase_b: f64| Field::new().fixed(uni(2.0, 0.0)).fixed(mgauss(-1.5, -1.9, 0.0)).fixed(mgauss(1.0, 1.9, phase_b));
+    vec![
+        // Rendezvous: the on-ramp. Nothing depends on when a probe leaves except when it arrives.
+        hints(sync_level("syn-1", "Rendezvous", "Two probes must reach the target together. Choose when to release each.",
+            Field::new().fixed(uni(1.2, 0.0)).fixed(radial(4.5, 0.0, -5.0, 1.0)),
+            vec![Region::target(4.5, 0.0, 0.8)],
+            sync_rules(vec![v2(-4.5, -2.5), v2(-4.5, 1.0)], vec![SyncCond::meet(0, 1, 0, -0.4, 0.4)])),
+            &[
+                "Launch both once and watch the timeline: each bar is how long that probe takes to arrive.",
+                "In this field a probe takes the same time whenever it leaves. What matters is how much later one leaves than the other.",
+                "The shaded band on the timeline is how far apart the two arrivals may be.",
+            ]),
+        // Windows: each probe is lifted into the target only if it passes its own pulsing push at the right moment.
+        hints(sync_level("syn-2", "Windows", "Each probe can reach the target only at certain times. Find a time they can share.",
+            windows(0.0), vec![Region::target(4.5, 0.0, 0.9)],
+            sync_rules(vec![v2(-5.0, -1.2), v2(-3.5, 1.2)], vec![SyncCond::meet(0, 1, 0, -0.6, 0.6)])),
+            &[
+                "Send each probe on its own first and see which release times get it to the target at all.",
+                "A probe that can only leave in a window arrives in a window too. The two arrival windows have to overlap.",
+                "The shaded band on the timeline is how far apart the arrivals may be; a probe that misses the target has no arrival to compare.",
+            ]),
+        // Order: the same kind of windows, but B must come after A rather than with it.
+        hints(sync_level("syn-3", "Order", "The second probe must arrive after the first, not with it.",
+            windows(-0.5), vec![Region::target(4.5, 0.0, 0.9)],
+            sync_rules(vec![v2(-5.0, -1.2), v2(-3.5, 1.2)], vec![SyncCond::meet(0, 1, 0, 1.0, 2.2)])),
+            &[
+                "The band on the timeline now sits after the first arrival: the second probe has to be late by a small, particular amount.",
+                "Each probe still has its own times at which it can reach the target at all.",
+                "Choose the first arrival you want, then see whether the second probe can arrive 1 to 2 seconds later.",
+            ]),
+        // Meet, then part: the probes must meet at the gate and then arrive at the target one after the other. Meeting
+        // twice would cost nothing (two probes at one place at one time share a future), so the second condition asks for
+        // the opposite: the field has to open a gap between probes that were together at the gate.
+        hints(sync_level("syn-4", "Meet, Then Part", "The probes must meet at the gate, then reach the target one after the other.",
+            pulses(), vec![Region::target(4.5, 0.0, 0.8), Region::gate(0.5, 0.0, 1.3)],
+            sync_rules(vec![v2(-4.5, -2.0), v2(-4.5, 0.8)], vec![SyncCond::meet(0, 1, 1, -1.0, 1.0), SyncCond::meet(0, 1, 0, 0.4, 1.2)])),
+            &[
+                "Meeting at the gate and arriving apart at the target are two conditions on the same two release times.",
+                "The field speeds probes up and slows them down in a cycle, so how far apart they arrive depends on when they pass through it.",
+                "A pair that meets at the gate can still arrive together at the target. Check both bands on the timeline after every launch.",
+            ]),
+        // Chain: three probes; the middle one is the link.
+        hints(sync_level("syn-5", "Chain", "The first and second meet at the gate. The second and third meet at the target.",
+            pulses(), vec![Region::target(4.5, 0.0, 0.8), Region::gate(0.5, 0.0, 1.3)],
+            sync_rules(vec![v2(-4.5, -2.0), v2(-4.5, 0.8), v2(-4.5, 3.0)], vec![SyncCond::meet(0, 1, 1, -0.8, 0.8), SyncCond::meet(1, 2, 0, -0.8, 0.8)])),
+            &[
+                "Two pairs have to line up, and the middle probe belongs to both.",
+                "Decide when the middle probe goes, then fit the other two around it.",
+                "The third probe cannot reach the target at every time. Try it alone first.",
+            ]),
+    ]
+}
+
 pub fn all() -> Vec<Level> {
     let mut v = position_levels();
     v.extend(predict_levels());
@@ -525,6 +611,7 @@ pub fn all() -> Vec<Level> {
     v.extend(steer_levels());
     v.extend(survey_levels());
     v.extend(shape_levels());
+    v.extend(sync_levels());
     v.extend(combo_levels());
     v
 }

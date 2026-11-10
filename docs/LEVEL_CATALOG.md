@@ -678,6 +678,122 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
   - run time limit: 25 s
 
+## syn-1 - Rendezvous (Synchronize)
+
+- objective: Two probes must reach the target together. Choose when to release each.
+- hint 1: Launch both once and watch the timeline: each bar is how long that probe takes to arrive.
+- hint 2: In this field a probe takes the same time whenever it leaves. What matters is how much later one leaves than the other.
+- hint 3: The shaded band on the timeline is how far apart the two arrivals may be.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 310320837
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.2, 0)
+  2. fixed - radial about (4.5, 0): v = k d / (|d|^2 + soft^2), k = -5, soft = 1 (attracts)
+- regions:
+  0. target 'T' centre (4.5, 0) radius 0.8
+- rules:
+  - mechanic: **Synchronize**
+  - 2 probes fly the same field; the player chooses only each probe's release delay (0 to 12 s, in steps of 0.1 s; the field clock at release)
+  - field period 12 s
+  - probe 0 starts at (-4.5, -2.5) and must reach region 0 (T)
+  - probe 1 starts at (-4.5, 1) and must reach region 0 (T)
+  - condition: probe 1 must enter region 0 (T) between -0.4 and 0.4 s after probe 0 enters region 0 (T)
+  - run time limit: 20 s per probe
+
+## syn-2 - Windows (Synchronize)
+
+- objective: Each probe can reach the target only at certain times. Find a time they can share.
+- hint 1: Send each probe on its own first and see which release times get it to the target at all.
+- hint 2: A probe that can only leave in a window arrives in a window too. The two arrival windows have to overlap.
+- hint 3: The shaded band on the timeline is how far apart the arrivals may be; a probe that misses the target has no arrival to compare.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 310320838
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (2, 0)
+  2. fixed - modulated: [local radial push about (-1.5, -1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 0))
+  3. fixed - modulated: [local radial push about (1, 1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 0))
+- regions:
+  0. target 'T' centre (4.5, 0) radius 0.9
+- rules:
+  - mechanic: **Synchronize**
+  - 2 probes fly the same field; the player chooses only each probe's release delay (0 to 12 s, in steps of 0.1 s; the field clock at release)
+  - field period 12 s
+  - probe 0 starts at (-5, -1.2) and must reach region 0 (T)
+  - probe 1 starts at (-3.5, 1.2) and must reach region 0 (T)
+  - condition: probe 1 must enter region 0 (T) between -0.6 and 0.6 s after probe 0 enters region 0 (T)
+  - run time limit: 20 s per probe
+
+## syn-3 - Order (Synchronize)
+
+- objective: The second probe must arrive after the first, not with it.
+- hint 1: The band on the timeline now sits after the first arrival: the second probe has to be late by a small, particular amount.
+- hint 2: Each probe still has its own times at which it can reach the target at all.
+- hint 3: Choose the first arrival you want, then see whether the second probe can arrive 1 to 2 seconds later.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 310320839
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (2, 0)
+  2. fixed - modulated: [local radial push about (-1.5, -1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 0))
+  3. fixed - modulated: [local radial push about (1, 1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + -0.5))
+- regions:
+  0. target 'T' centre (4.5, 0) radius 0.9
+- rules:
+  - mechanic: **Synchronize**
+  - 2 probes fly the same field; the player chooses only each probe's release delay (0 to 12 s, in steps of 0.1 s; the field clock at release)
+  - field period 12 s
+  - probe 0 starts at (-5, -1.2) and must reach region 0 (T)
+  - probe 1 starts at (-3.5, 1.2) and must reach region 0 (T)
+  - condition: probe 1 must enter region 0 (T) between 1 and 2.2 s after probe 0 enters region 0 (T)
+  - run time limit: 20 s per probe
+
+## syn-4 - Meet, Then Part (Synchronize)
+
+- objective: The probes must meet at the gate, then reach the target one after the other.
+- hint 1: Meeting at the gate and arriving apart at the target are two conditions on the same two release times.
+- hint 2: The field speeds probes up and slows them down in a cycle, so how far apart they arrive depends on when they pass through it.
+- hint 3: A pair that meets at the gate can still arrive together at the target. Check both bands on the timeline after every launch.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 310320840
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1, 0)
+  2. fixed - modulated: [uniform flow (1.2, 0)] x (0 + 0.8 sin(0.5235987755982988 t + 0))
+  3. fixed - modulated: [uniform flow (0, 1)] x (0 + 0.8 sin(0.5235987755982988 t + 2))
+  4. fixed - radial about (4.5, 0): v = k d / (|d|^2 + soft^2), k = -5, soft = 1 (attracts)
+- regions:
+  0. target 'T' centre (4.5, 0) radius 0.8
+  1. gate 'G' centre (0.5, 0) radius 1.3
+- rules:
+  - mechanic: **Synchronize**
+  - 2 probes fly the same field; the player chooses only each probe's release delay (0 to 12 s, in steps of 0.1 s; the field clock at release)
+  - field period 12 s
+  - probe 0 starts at (-4.5, -2) and must reach region 0 (T)
+  - probe 1 starts at (-4.5, 0.8) and must reach region 0 (T)
+  - condition: probe 1 must enter region 1 (G) between -1 and 1 s after probe 0 enters region 1 (G)
+  - condition: probe 1 must enter region 0 (T) between 0.4 and 1.2 s after probe 0 enters region 0 (T)
+  - run time limit: 20 s per probe
+
+## syn-5 - Chain (Synchronize)
+
+- objective: The first and second meet at the gate. The second and third meet at the target.
+- hint 1: Two pairs have to line up, and the middle probe belongs to both.
+- hint 2: Decide when the middle probe goes, then fit the other two around it.
+- hint 3: The third probe cannot reach the target at every time. Try it alone first.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 310320841
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1, 0)
+  2. fixed - modulated: [uniform flow (1.2, 0)] x (0 + 0.8 sin(0.5235987755982988 t + 0))
+  3. fixed - modulated: [uniform flow (0, 1)] x (0 + 0.8 sin(0.5235987755982988 t + 2))
+  4. fixed - radial about (4.5, 0): v = k d / (|d|^2 + soft^2), k = -5, soft = 1 (attracts)
+- regions:
+  0. target 'T' centre (4.5, 0) radius 0.8
+  1. gate 'G' centre (0.5, 0) radius 1.3
+- rules:
+  - mechanic: **Synchronize**
+  - 3 probes fly the same field; the player chooses only each probe's release delay (0 to 12 s, in steps of 0.1 s; the field clock at release)
+  - field period 12 s
+  - probe 0 starts at (-4.5, -2) and must reach region 0 (T)
+  - probe 1 starts at (-4.5, 0.8) and must reach region 0 (T)
+  - probe 2 starts at (-4.5, 3) and must reach region 0 (T)
+  - condition: probe 1 must enter region 1 (G) between -0.8 and 0.8 s after probe 0 enters region 1 (G)
+  - condition: probe 2 must enter region 0 (T) between -0.8 and 0.8 s after probe 1 enters region 0 (T)
+  - run time limit: 20 s per probe
+
 ## cmb-1 - Through the Gate (Combinations)
 
 - objective: Position + corridor: pass the gate, then reach the target.

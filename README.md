@@ -1,7 +1,7 @@
 # Vector Field
 
 A 2D puzzle game about steering a probe through a vector field, written in Rust
-([macroquad](https://github.com/not-fl3/macroquad)). It is built around seven *different* kinds of reasoning (Survey and Shape are prototypes, see below):
+([macroquad](https://github.com/not-fl3/macroquad)). It is built around eight *different* kinds of reasoning (Survey, Shape and Synchronize are prototypes, see below):
 
 | Mechanic | Question | What you decide | Skill |
 |---|---|---|---|
@@ -12,8 +12,9 @@ A 2D puzzle game about steering a probe through a vector field, written in Rust
 | **Steer** | What should I do next? | a gust (or nothing) every beat, with feedback | closed-loop control: planning from observed state |
 | **Survey** *(prototype)* | Where is the hidden source? | where to release a few scouts, then one estimate | choosing what to observe to infer a hidden structure |
 | **Shape** *(prototype)* | How should I change the field? | which sources to add, and where, then launch | creating the effect you want by changing the field |
+| **Synchronize** *(prototype)* | How must these probes be coordinated? | when each of several probes is released | matching the timing of several trajectories (see docs/11-synchronize.md for how far this differs from Tempo) |
 
-25 fundamental levels (5 for each of the first five mechanics), five Survey and four Shape prototype levels and 6 combination levels. Shape's evidence is the same kind as Survey's: an automated validation against the real simulation, not playtests (see `docs/10-shape.md`). Survey's evidence so far is an ideal-solver validation, not playtests (see `docs/09-survey.md`). See [docs/DESIGN.md](docs/DESIGN.md) for the per-mechanic
+25 fundamental levels (5 for each of the first five mechanics), five Survey, four Shape and five Synchronize prototype levels and 6 combination levels. Shape's evidence is the same kind as Survey's: an automated validation against the real simulation, not playtests (see `docs/10-shape.md`). Survey's evidence so far is an ideal-solver validation, not playtests (see `docs/09-survey.md`). See [docs/DESIGN.md](docs/DESIGN.md) for the per-mechanic
 design, and how the "these are really different" requirement is checked by automated tests.
 
 ## Run
@@ -25,9 +26,10 @@ cargo run --release --bin report [-- --detail]   # per-level validation numbers
 cargo run --release --bin report -- --steer      # Steer validation report (see docs/STEER_VALIDATION.md)
 cargo run --release --bin report -- --survey     # Survey validation report (see docs/SURVEY_VALIDATION.md)
 cargo run --release --bin report -- --shape      # Shape validation report (see docs/SHAPE_VALIDATION.md)
+cargo run --release --bin report -- --sync       # Synchronize validation report (see docs/SYNC_VALIDATION.md)
 ```
 
-Controls: mouse; Space/Enter launch or confirm; in Steer, Q W E / A S D / Z X C pick a gust direction (S = wait) or use the arrow keys; arrow keys nudge; in Survey, `S` scout / `M` marker (or `Tab`), click or Space to place, `C` commit; in Shape, click to place a source, drag to move it, `1`-`4` or `Tab` pick the kind, `Del`/`X`/right-click remove, `P` place at the keyboard cursor, Space launch; `H` hint; `R` retry/reset; `V` replay;
+Controls: mouse; Space/Enter launch or confirm; in Steer, Q W E / A S D / Z X C pick a gust direction (S = wait) or use the arrow keys; arrow keys nudge; in Survey, `S` scout / `M` marker (or `Tab`), click or Space to place, `C` commit; in Shape, click to place a source, drag to move it, `1`-`4` or `Tab` pick the kind, `Del`/`X`/right-click remove, `P` place at the keyboard cursor, Space launch; in Synchronize, drag a release handle on the timeline (or 1-3 and Left / Right), Space launch; `H` hint; `R` retry/reset; `V` replay;
 `G` arrow-grid density; `K` high-contrast arrows; `U` unlock all levels; `Esc` back.
 Progress and display settings are saved automatically (see Saving below).
 
@@ -45,7 +47,7 @@ Finished levels and the display settings (`G` arrow density, `K` high contrast) 
 ```
 src/field.rs        field model v(x, y, t; theta)      src/sim.rs      RK4 engine, regions, outcomes
 src/level.rs        level data types                   src/levels.rs   all content, as data
-src/modes/          the seven gameplay modes (no UI)    src/validate.rs automated mechanic checks
+src/modes/          the eight gameplay modes (no UI)    src/validate.rs automated mechanic checks
 src/app.rs, render.rs, ui.rs, main.rs  macroquad front end        tests/mechanics.rs  validation suite
 src/save.rs, storage.rs  saved progress (file / browser)       tests/             one test file per area
 web/index.html      the web page and its save plugin   docs/              documentation
