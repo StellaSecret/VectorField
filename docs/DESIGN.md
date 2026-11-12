@@ -79,7 +79,7 @@ For levels 2 to 5 the greedy bearing policy, the one-beat greedy lookahead and *
 - All five levels use 8 directions. 4-direction mode is implemented and tested but no level uses it.
 - The abstractions `Knobs` and `Visibility` named in the brief do not exist in this codebase. Steer uses none of the release / intensity / phase controls and needs no visibility switch because everything is visible.
 
-### Survey - "Where is the hidden source?" (prototype)
+### Survey - "Where is the hidden source?"
 - **Information:** the charted background field (visible arrows), the zone, and every scout's finished 5 s trail with direction chevrons. The hidden source's position, and what it does to the field, are never shown before the commit.
 - **Decisions:** where to release each of a limited number of scouts (one more is free), then where to put one estimate marker.
 - **Loop:** observe -> place a scout -> read its trail -> place the next scout where the remaining explanations disagree -> commit one estimate -> reveal. A retry moves the source to a different authored position.
@@ -102,7 +102,7 @@ For levels 2 to 5 the greedy bearing policy, the one-beat greedy lookahead and *
 | unsolvable by any 2 scouts | 1% | 1% |
 
 **Known limitations.**
-- No human has played it. The question that decides whether Survey is a fundamental mechanic is whether players pick scouts to tell two explanations apart, not whether they find the source.
+- The automated checks cannot answer the question that matters most for Survey: whether players pick scouts to tell two explanations apart, not whether they find the source. Playtest findings are not recorded in this document.
 - The lead over a sensible fixed pattern is small (+6 points coarse, +4 fine); over random scouts it is +17 and +13. With 3 scouts the lead over the fixed pattern is +9 and +3.
 - For ideal play 5 of the 6 authored positions need only one paid scout; the second matters for imperfect play (73% -> 81%).
 - Difficulty is mostly whether the free trail (which only reaches x = 0) passes near the source. The two-scout positions all lie in one patch the free scout never sees.

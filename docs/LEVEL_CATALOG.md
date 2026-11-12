@@ -695,7 +695,7 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - 2 probes fly the same field; the player chooses only each probe's release delay (0 to 12 s, in steps of 0.1 s; the field clock at release)
   - field period 12 s
   - probe 0 starts at (-4.5, -2.5) and must reach region 0 (T)
-  - probe 1 starts at (-4.5, 1) and must reach region 0 (T)
+  - probe 1 starts at (-1, 1) and must reach region 0 (T)
   - condition: probe 1 must enter region 0 (T) between -0.4 and 0.4 s after probe 0 enters region 0 (T)
   - run time limit: 20 s per probe
 
@@ -708,8 +708,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
 - bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 310320838
 - field layers (summed; a *tunable* layer is multiplied by the intensity):
   1. fixed - uniform flow (2, 0)
-  2. fixed - modulated: [local radial push about (-1.5, -1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 0))
-  3. fixed - modulated: [local radial push about (1, 1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 0))
+  2. fixed - modulated: [local radial push about (-1.5, -1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 4))
+  3. fixed - modulated: [local radial push about (1, 1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 4))
 - regions:
   0. target 'T' centre (4.5, 0) radius 0.9
 - rules:
@@ -730,8 +730,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
 - bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 310320839
 - field layers (summed; a *tunable* layer is multiplied by the intensity):
   1. fixed - uniform flow (2, 0)
-  2. fixed - modulated: [local radial push about (-1.5, -1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 0))
-  3. fixed - modulated: [local radial push about (1, 1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + -0.5))
+  2. fixed - modulated: [local radial push about (-1.5, -1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 4))
+  3. fixed - modulated: [local radial push about (1, 1.9): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 3.5))
 - regions:
   0. target 'T' centre (4.5, 0) radius 0.9
 - rules:
@@ -752,8 +752,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
 - bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 310320840
 - field layers (summed; a *tunable* layer is multiplied by the intensity):
   1. fixed - uniform flow (1, 0)
-  2. fixed - modulated: [uniform flow (1.2, 0)] x (0 + 0.8 sin(0.5235987755982988 t + 0))
-  3. fixed - modulated: [uniform flow (0, 1)] x (0 + 0.8 sin(0.5235987755982988 t + 2))
+  2. fixed - modulated: [uniform flow (1.2, 0)] x (0 + 0.8 sin(0.5235987755982988 t + 4))
+  3. fixed - modulated: [uniform flow (0, 1)] x (0 + 0.8 sin(0.5235987755982988 t + 6))
   4. fixed - radial about (4.5, 0): v = k d / (|d|^2 + soft^2), k = -5, soft = 1 (attracts)
 - regions:
   0. target 'T' centre (4.5, 0) radius 0.8
@@ -777,8 +777,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
 - bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 310320841
 - field layers (summed; a *tunable* layer is multiplied by the intensity):
   1. fixed - uniform flow (1, 0)
-  2. fixed - modulated: [uniform flow (1.2, 0)] x (0 + 0.8 sin(0.5235987755982988 t + 0))
-  3. fixed - modulated: [uniform flow (0, 1)] x (0 + 0.8 sin(0.5235987755982988 t + 2))
+  2. fixed - modulated: [uniform flow (1.2, 0)] x (0 + 0.8 sin(0.5235987755982988 t + 4))
+  3. fixed - modulated: [uniform flow (0, 1)] x (0 + 0.8 sin(0.5235987755982988 t + 6))
   4. fixed - radial about (4.5, 0): v = k d / (|d|^2 + soft^2), k = -5, soft = 1 (attracts)
 - regions:
   0. target 'T' centre (4.5, 0) radius 0.8

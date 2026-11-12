@@ -270,7 +270,9 @@ fn level_one_is_arithmetic_and_says_so() {
     let s = stats_of("syn-1");
     assert_eq!(s.shift_break_1s, 0.0);
     assert_eq!(s.shift_break_2s, 0.0);
-    assert!(s.anchor > 0.99, "every release of the first probe has a partner: {}", s.anchor);
+    // every release of the first probe has a partner, except one so late that the second probe's delay would pass the
+    // 12 s limit (B has to leave 2.2 s after A): 9.8 / 12 = 82%
+    assert!(s.anchor > 0.8, "almost every release of the first probe has a partner: {}", s.anchor);
     assert!(s.alone.iter().all(|a| *a > 0.99), "each probe reaches the target at any time");
     assert!((s.tempo_only - s.blind()).abs() < 1e-9, "per-probe timing tells a Tempo player nothing here");
     // the relationship is a single number: the winners are exactly the pairs with the right difference
@@ -286,7 +288,7 @@ fn level_one_is_arithmetic_and_says_so() {
 fn levels_two_to_five_depend_on_when_each_probe_leaves_not_only_on_the_difference() {
     // In a periodic field the same relative delay wins at one time and loses at another: success depends on the
     // absolute phase of every probe, so the problem is not a subtraction.
-    for (id, min_break) in [("syn-2", 0.4), ("syn-3", 0.4), ("syn-4", 0.9), ("syn-5", 0.9)] {
+    for (id, min_break) in [("syn-2", 0.3), ("syn-3", 0.4), ("syn-4", 0.7), ("syn-5", 0.9)] {
         let s = stats_of(id);
         assert!(s.shift_break_1s >= min_break, "{id}: only {:.2} of the winners stop winning when everything leaves 1 s later", s.shift_break_1s);
         assert!(s.shift_break_2s >= s.shift_break_1s * 0.9, "{id}");
@@ -423,6 +425,26 @@ fn the_panel_text_states_early_and_late_but_not_the_answer() {
     let app = include_str!("../src/app.rs");
     assert!(app.contains("s too late") && app.contains("s too early"));
     let start = app.find("fn sync_cond_text").unwrap();
-    let end = app[start..].find("fn sync_summary").map(|i| start + i).unwrap();
+    let end = app[start..].find("fn sync_frame").map(|i| start + i).unwrap();
     assert!(!app[start..end].contains("leave at") && !app[start..end].contains("release at"));
+}
+
+#[test]
+fn no_level_is_won_by_launching_with_the_default_delays() {
+    // Found by looking at the running game: level 1 used to be won by pressing Launch immediately, because the two
+    // travel times (4.0 s and 3.7 s) differed by less than the window. Every level must need a decision.
+    for l in levels::sync_levels() {
+        let sp = SyncSpec::from_level(&l);
+        assert!(!sp.fly(&vec![0.0; sp.probes()]).success, "{}: the untouched defaults win", l.id);
+        // nor is there any solution within 1.5 s of the defaults (level 1's nearest is 1.8 s: B must leave 2.2 s after A)
+        let t = Table::new(&sp);
+        let nearest = t.winners().iter().map(|k| *k.iter().max().unwrap() as f64 * SYNC_DELAY_STEP).fold(f64::MAX, f64::min);
+        assert!(nearest >= 1.5, "{}: a solution has every delay within {nearest} s of the defaults", l.id);
+        // and not by luck of a one-step nudge of a single probe either
+        for i in 0..sp.probes() {
+            let mut d = vec![0.0; sp.probes()];
+            d[i] = SYNC_DELAY_STEP;
+            assert!(!sp.fly(&d).success, "{}: nudging probe {i} by one step wins", l.id);
+        }
+    }
 }

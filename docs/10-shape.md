@@ -56,7 +56,7 @@ Success: the probe's path touches the target region. Failure is only a missed la
 
 Messages (`shape_frame`): "Success! The probe reached the target."; "The probe {hit the obstacle | left the field | ran out of time | came to rest | hit a numerical fault}. Change the field and launch again."; "With no sources the probe ... ."; placement refusals: "Sources can only go inside the shaded placement area.", "Not on the target.", "Not on an obstacle.", "Too close to another source.", "No sources left: move or remove one." A red cross under the cursor and a note in the panel say why a click would be refused before it is made. The completion banner reports the launches used.
 
-Not verified: the front end has not been looked at on a screen in this work (the code compiles and its logic is tested, but there was no display), so spacing, the glyphs and the panel layout need an eyeball pass.
+Checked in a headless render of the real game (`scripts/screenshot.sh`): the menu, the level select, and level 1 with the hover ghost and influence ring, a placed repeller reshaping the arrows, and a launch result with its message. Not checked on screen: levels 2-4, dragging and keyboard placement, the multi-kind selector buttons.
 
 ## 9. Levels
 
@@ -89,7 +89,7 @@ Where the claim is weaker than it sounds:
 4. **Level 3's orientation has a mirror.** Both swirl directions win (from opposite sides), so the decision is which direction goes with which position, not one unique swirl.
 5. **Level 4 coupling is measured on a lattice and ordered by x**, and its first source has only 15 distinct useful positions. It shows the second source depends on the first; it does not show that a player will find the relay by reasoning.
 6. **The placement area is a hint.** In level 2 the area is above the path, which tells the player which side matters.
-7. **Not playtested, and the front end not looked at on a screen.**
+7. **Automated evidence only.** The numbers here come from validation against the real simulation and a reader model; playtest findings are not recorded in this document.
 
 ## 11. Tests
 

@@ -1,7 +1,7 @@
 # Vector Field
 
 A 2D puzzle game about steering a probe through a vector field, written in Rust
-([macroquad](https://github.com/not-fl3/macroquad)). It is built around eight *different* kinds of reasoning (Survey, Shape and Synchronize are prototypes, see below):
+([macroquad](https://github.com/not-fl3/macroquad)). It is built around eight *different* kinds of reasoning:
 
 | Mechanic | Question | What you decide | Skill |
 |---|---|---|---|
@@ -10,11 +10,11 @@ A 2D puzzle game about steering a probe through a vector field, written in Rust
 | **Tempo** | When should I launch? | the launch phase of a changing field | reasoning about time-dependent geometry |
 | **Experiment** | How does the system behave? | a parameter, then a *conclusion* | discovering a rule by controlled tests |
 | **Steer** | What should I do next? | a gust (or nothing) every beat, with feedback | closed-loop control: planning from observed state |
-| **Survey** *(prototype)* | Where is the hidden source? | where to release a few scouts, then one estimate | choosing what to observe to infer a hidden structure |
-| **Shape** *(prototype)* | How should I change the field? | which sources to add, and where, then launch | creating the effect you want by changing the field |
-| **Synchronize** *(prototype)* | How must these probes be coordinated? | when each of several probes is released | matching the timing of several trajectories (see docs/11-synchronize.md for how far this differs from Tempo) |
+| **Survey** | Where is the hidden source? | where to release a few scouts, then one estimate | choosing what to observe to infer a hidden structure |
+| **Shape** | How should I change the field? | which sources to add, and where, then launch | creating the effect you want by changing the field |
+| **Synchronize** | How must these probes be coordinated? | when each of several probes is released | matching the timing of several trajectories (see docs/11-synchronize.md for how far this differs from Tempo) |
 
-25 fundamental levels (5 for each of the first five mechanics), five Survey, four Shape and five Synchronize prototype levels and 6 combination levels. Shape's evidence is the same kind as Survey's: an automated validation against the real simulation, not playtests (see `docs/10-shape.md`). Survey's evidence so far is an ideal-solver validation, not playtests (see `docs/09-survey.md`). See [docs/DESIGN.md](docs/DESIGN.md) for the per-mechanic
+39 levels across the eight mechanics (5 each for Position, Predict, Tempo, Experiment, Steer, Survey and Synchronize, 4 for Shape) and 6 combination levels. The evidence in the docs is automated: validation against the real simulation, with reader models standing in for players (`docs/09-survey.md`, `docs/10-shape.md`, `docs/11-synchronize.md`); playtest findings are not recorded there. See [docs/DESIGN.md](docs/DESIGN.md) for the per-mechanic
 design, and how the "these are really different" requirement is checked by automated tests.
 
 ## Run
@@ -33,6 +33,10 @@ Controls: mouse; Space/Enter launch or confirm; in Steer, Q W E / A S D / Z X C 
 `G` arrow-grid density; `K` high-contrast arrows; `U` unlock all levels; `Esc` back.
 Progress and display settings are saved automatically (see Saving below).
 
+
+## Screenshots without a display
+
+`scripts/screenshot.sh out.png "xdotool mousemove 640 458 click 1" ...` runs the built game under Xvfb with software GL, replays the given input commands and saves a screenshot (needs `xvfb xdotool imagemagick libgl1-mesa-dri`). It is how the menu and the Shape and Synchronize screens were checked.
 
 ## Saving
 

@@ -5,7 +5,7 @@ use macroquad::prelude::*;
 use std::collections::HashSet;
 use vfield::modes::steer::Run as SteerRun;
 use vfield::modes::*;
-use vfield::modes::{SyncCondResult, SyncFlight, SyncSpec, SYNC_DELAY_STEP};
+use vfield::modes::{SyncCondResult, SyncSpec, SYNC_DELAY_STEP};
 use vfield::save::Save;
 use vfield::sim::{Outcome, Trajectory};
 use vfield::{levels, Chapter, GustDirs, Level, Reveal, Rules, SourceKind, SurveyGoal, V2};
@@ -270,38 +270,71 @@ impl App {
         text_c("VECTOR FIELD", W / 2.0, 100.0, 64.0, WHITE);
         text_c("Read the flow. Steer the probe.", W / 2.0, 150.0, 26.0, gray());
         let mut next = Screen::Menu;
-        let count = Chapter::ALL.len() as f32;
-        let (gap, cw) = (12.0, (W - 80.0 - 12.0 * (count - 1.0)) / count);
-        for (k, c) in Chapter::ALL.iter().enumerate() {
-            let r = Rect::new(40.0 + k as f32 * (cw + gap), 200.0, cw, 300.0);
-            let unlocked = self.chapter_unlocked(*c);
-            let ids = self.chapter_levels(*c);
+
+        // Layout: five columns. Every mechanic is a fundamental and they fill the grid in order; the capstone
+        // (Combinations) takes the last column of the last row, set apart by a gap and its own label.
+        let (margin, gap, card_h) = (60.0, 16.0, 132.0);
+        let cw = (W - 2.0 * margin - 4.0 * gap) / 5.0;
+        let col_x = |c: usize| margin + c as f32 * (cw + gap);
+        let (row1_y, row_pitch) = (212.0, card_h + 38.0);
+        let mechanics: Vec<Chapter> = Chapter::ALL.iter().copied().filter(|c| *c != Chapter::Combo).collect();
+        let mut slots: Vec<(Chapter, usize, f32)> = mechanics.iter().enumerate().map(|(i, c)| (*c, i % 5, row1_y + (i / 5) as f32 * row_pitch)).collect();
+        // the capstone: the last column of the last row of mechanics, or a new row if that row is full
+        let last_row = (mechanics.len().saturating_sub(1) / 5) as f32;
+        let combo_row = if mechanics.len() % 5 == 0 { last_row + 1.0 } else { last_row };
+        let combo_y = row1_y + combo_row * row_pitch;
+        slots.push((Chapter::Combo, 4, combo_y));
+
+        text("MECHANICS", col_x(0), row1_y - 12.0, 17.0, gray());
+        text("CAPSTONE", col_x(4), combo_y - 12.0, 17.0, gray());
+
+        // the chapter to play next: the first unlocked one that is not finished
+        let next_up = Chapter::ALL.iter().copied().find(|c| self.chapter_unlocked(*c) && self.chapter_levels(*c).iter().any(|i| !self.done(*i)));
+
+        for (c, col, y) in slots {
+            let r = Rect::new(col_x(col), y, cw, card_h);
+            let unlocked = self.chapter_unlocked(c);
+            let ids = self.chapter_levels(c);
             let n = ids.iter().filter(|i| self.done(**i)).count();
             let hot = r.contains(inp.mouse) && unlocked;
+            let col_c = chapter_color(c);
             draw_rectangle(r.x, r.y, r.w, r.h, if hot { rgb(54, 62, 82) } else { rgb(36, 41, 56) });
-            draw_rectangle_lines(r.x, r.y, r.w, r.h, 3.0, if unlocked { chapter_color(*c) } else { rgb(70, 74, 86) });
-            text_c(c.name(), r.x + r.w / 2.0, r.y + 40.0, if count > 8.0 { 18.0 } else if count > 7.0 { 22.0 } else if count > 6.0 { 26.0 } else { 30.0 }, if unlocked { WHITE } else { gray() });
-            wrap(c.question(), r.x + 14.0, r.y + 90.0, r.w - 28.0, if count > 8.0 { 16.0 } else if count > 7.0 { 18.0 } else if count > 6.0 { 20.0 } else { 22.0 }, gray());
-            text_c(&format!("{}/{} complete", n, ids.len()), r.x + r.w / 2.0, r.y + 250.0, if count > 8.0 { 16.0 } else { 20.0 }, WHITE);
-            if !unlocked {
-                text_c("Locked", r.x + r.w / 2.0, r.y + 170.0, 22.0, bad_c());
-                wrap("Finish level 1 of the four mechanics.", r.x + 16.0, r.y + 200.0, r.w - 32.0, 16.0, gray());
+            draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, if unlocked { alpha(col_c, 0.9) } else { rgb(70, 74, 86) });
+            draw_rectangle(r.x, r.y, r.w, 6.0, if unlocked { col_c } else { rgb(70, 74, 86) });
+            text(c.name(), r.x + 16.0, r.y + 36.0, 26.0, if unlocked { WHITE } else { gray() });
+            if unlocked && next_up == Some(c) {
+                text("NEXT", r.x + r.w - 52.0, r.y + 30.0, 15.0, col_c);
             }
+            if unlocked {
+                wrap(c.question(), r.x + 16.0, r.y + 62.0, r.w - 32.0, 17.0, gray());
+            } else {
+                text("Locked", r.x + 16.0, r.y + 66.0, 18.0, bad_c());
+                wrap("Finish level 1 of Position, Predict, Tempo and Experiment.", r.x + 16.0, r.y + 80.0, r.w - 32.0, 14.0, gray());
+            }
+            // progress: one pip per level, filled when done
+            for k in 0..ids.len() {
+                let (px, py) = (r.x + 16.0 + k as f32 * 20.0, r.y + r.h - 26.0);
+                if k < n.min(ids.len()) && self.done(ids[k]) {
+                    draw_rectangle(px, py, 14.0, 14.0, if unlocked { col_c } else { gray() });
+                } else {
+                    draw_rectangle_lines(px, py, 14.0, 14.0, 2.0, if unlocked { alpha(col_c, 0.7) } else { rgb(70, 74, 86) });
+                }
+            }
+            text(&format!("{}/{}", n, ids.len()), r.x + r.w - 44.0, r.y + r.h - 13.0, 17.0, if unlocked { WHITE } else { gray() });
             if hot && inp.pressed {
-                next = Screen::Select(*c);
+                next = Screen::Select(c);
             }
         }
         let lines = [
             "Mouse: click and drag.   Space / Enter: launch or confirm.   H: hint.   R: retry.   V: replay.   Esc: back.",
-            "G: arrow grid density.   K: high-contrast arrows.   U: unlock every level.   Survey: S scout, M marker, C commit.",
-            "Shape: 1-4 kind, P place, Del remove.   Synchronize: drag a release handle on the timeline, or 1-3 and Left / Right.",
+            "G: arrow grid density.   K: high-contrast arrows.   U: unlock every level.   Each mechanic shows its own controls while you play.",
         ];
         for (i, l) in lines.iter().enumerate() {
-            text_c(l, W / 2.0, 560.0 + i as f32 * 26.0, 19.0, gray());
+            text_c(l, W / 2.0, 640.0 + i as f32 * 26.0, 18.0, gray());
         }
-        text_c(if self.prefs.unlock_all { "All levels unlocked" } else { "" }, W / 2.0, 650.0, 20.0, good_c());
+        text_c(if self.prefs.unlock_all { "All levels unlocked" } else { "" }, W / 2.0, 710.0, 20.0, good_c());
         if !self.save_ok {
-            text_c("Could not save your progress here (storage is blocked or full). It will be lost when you close the game.", W / 2.0, 676.0, 18.0, bad_c());
+            text_c("Could not save your progress here (storage is blocked or full). It will be lost when you close the game.", W / 2.0, 740.0, 18.0, bad_c());
         }
         next
     }
@@ -376,8 +409,8 @@ fn panel_header(l: &Level) -> f32 {
     draw_rectangle_lines(1000.0, 80.0, 260.0, 700.0, 2.0, rgb(60, 66, 84));
     let n = l.id.rsplit('-').next().unwrap_or("");
     text(&format!("{} {}", l.chapter.name().to_uppercase(), n), PX0, 108.0, 22.0, chapter_color(l.chapter));
-    text(l.chapter.question(), PX0, 130.0, 18.0, gray());
-    150.0
+    // the question can be longer than the panel is wide: wrap it, and let the caller start below it
+    wrap(l.chapter.question(), PX0, 130.0, PW, 18.0, gray()).max(150.0)
 }
 
 fn show_msg(st: &St) {
@@ -2340,19 +2373,6 @@ fn sync_cond_text(l: &Level, c: &SyncCondResult) -> (String, bool) {
     (format!("Probe {b} {place} {when} probe {a}; allowed {allowed}: {verdict}."), miss == 0.0)
 }
 
-fn sync_summary(g: &SyncGame, f: &SyncFlight) -> (String, bool) {
-    if f.success {
-        return ("Synchronized! Every condition holds.".into(), true);
-    }
-    for (i, ok) in f.reached.iter().enumerate() {
-        if !ok {
-            return (format!("Probe {} {}. Release it at another time.", SYNC_NAMES[i], shape_result(f.trajs[i].outcome)), false);
-        }
-    }
-    let bad = f.conds.iter().find(|c| !c.ok()).expect("a failed flight has a failed condition");
-    (sync_cond_text(g.level(), bad).0, false)
-}
-
 fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     let lvl = g.level().clone();
     let spec = g.spec.clone();
@@ -2366,11 +2386,6 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         if st.sync_clock >= st.sync_end + 0.8 {
             st.sync_playing = false;
             st.sync_clock = 0.0;
-            if let Some(f) = g.flights.last() {
-                let (m, good) = sync_summary(g, f);
-                st.msg = m;
-                st.good = Some(good);
-            }
         }
     } else {
         st.sync_clock = (st.sync_clock + dt) % spec.period;
@@ -2456,7 +2471,6 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         }
         t += 1.0;
     }
-    text("seconds (field clock); long ticks mark each cycle", r::AX + r::AW - 330.0, TL_Y + 14.0, 12.0, gray());
     let flight = g.flights.last().filter(|_| st.sync_show).cloned();
     for i in 0..n {
         let y = TL_Y + 18.0 + i as f32 * TL_LANE;
@@ -2534,15 +2548,28 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         st.sync_show = true;
         st.msg.clear();
     }
-    // what the last flight showed, condition by condition (after the playback)
+    // What the last flight showed, in one place (after the playback): a probe that never arrived, then every condition
+    // with how far outside its allowed range it was. The panel is the only place the verdict is written.
+    let mut yy = y + 90.0;
     if let (Some(f), false) = (flight.as_ref(), playing) {
-        let mut yy = y + 90.0;
+        if f.success {
+            yy = wrap("Synchronized! Every condition holds.", PX0, yy, PW, 16.0, good_c()) + 6.0;
+        }
+        for (i, ok) in f.reached.iter().enumerate() {
+            if !ok {
+                yy = wrap(&format!("Probe {} {}. Release it at another time.", SYNC_NAMES[i], shape_result(f.trajs[i].outcome)), PX0, yy, PW, 15.0, alpha(r::c_hazard(), 1.0)) + 4.0;
+            }
+        }
         for c in &f.conds {
+            // a condition that mentions a probe that never arrived has nothing to compare (said above)
+            if c.offset().is_none() {
+                continue;
+            }
             let (msg, ok) = sync_cond_text(&lvl, c);
             yy = wrap(&msg, PX0, yy, PW, 15.0, if ok { good_c() } else { alpha(r::c_hazard(), 1.0) }) + 4.0;
         }
     }
-    text("Drag a handle on the timeline, or click a probe and use Left / Right (Shift: 0.5 s).  1-3 select a probe.  V replays.", r::AX, r::AY + r::AH + 4.0, 13.0, gray());
+    wrap("Timeline (bottom): seconds on the field clock; long ticks mark each cycle. A bar is a flight and a white tick its arrival; the shaded band is where the other probe's arrival is allowed. Drag a handle, or select a probe (1-3) and use Left / Right (Shift: 0.5 s). V replays.", PX0, (yy + 14.0).max(470.0), PW, 12.0, gray());
 }
 
 #[cfg(test)]

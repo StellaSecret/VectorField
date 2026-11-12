@@ -528,15 +528,18 @@ pub fn shape_levels() -> Vec<Level> {
 ///   possible arrival times have to be matched: the probes cannot be solved one at a time;
 /// - a field whose *speed pulses* (levels 4 and 5) makes the time between two places depend on when a probe passes
 ///   them, so what happens at the gate and what happens at the target are two different conditions on the same delays.
+/// Where in its cycle the field is at t = 0, in radians. Without it the first window of every level opens at once and
+/// a launch with the controls untouched, or nudged a little, is close to a solution (a test refuses that).
+const SYNC_PHASE: f64 = 4.0;
 fn mgauss(x: f64, y: f64, phase: f64) -> Term {
-    Term::Modulated { inner: Box::new(Term::Gauss { c: v2(x, y), k: SHAPE_K, sigma: SHAPE_SIGMA }), offset: 0.0, amp: 1.0, omega: TAU / T12, phase }
+    Term::Modulated { inner: Box::new(Term::Gauss { c: v2(x, y), k: SHAPE_K, sigma: SHAPE_SIGMA }), offset: 0.0, amp: 1.0, omega: TAU / T12, phase: phase + SYNC_PHASE }
 }
 fn pulses() -> Field {
     let w = TAU / T12;
     Field::new()
         .fixed(uni(1.0, 0.0))
-        .fixed(Term::Modulated { inner: Box::new(uni(1.2, 0.0)), offset: 0.0, amp: 0.8, omega: w, phase: 0.0 })
-        .fixed(Term::Modulated { inner: Box::new(uni(0.0, 1.0)), offset: 0.0, amp: 0.8, omega: w, phase: 2.0 })
+        .fixed(Term::Modulated { inner: Box::new(uni(1.2, 0.0)), offset: 0.0, amp: 0.8, omega: w, phase: SYNC_PHASE })
+        .fixed(Term::Modulated { inner: Box::new(uni(0.0, 1.0)), offset: 0.0, amp: 0.8, omega: w, phase: 2.0 + SYNC_PHASE })
         .fixed(radial(4.5, 0.0, -5.0, 1.0))
 }
 fn sync_rules(starts: Vec<V2>, conds: Vec<SyncCond>) -> Rules {
@@ -552,11 +555,12 @@ fn sync_level(id: &'static str, title: &'static str, objective: &'static str, fi
 pub fn sync_levels() -> Vec<Level> {
     let windows = |phase_b: f64| Field::new().fixed(uni(2.0, 0.0)).fixed(mgauss(-1.5, -1.9, 0.0)).fixed(mgauss(1.0, 1.9, phase_b));
     vec![
-        // Rendezvous: the on-ramp. Nothing depends on when a probe leaves except when it arrives.
+        // Rendezvous: the on-ramp. Nothing depends on when a probe leaves except when it arrives. The probes' routes differ in
+        // length (4.0 s and 1.8 s), so releasing both at once misses by 2.2 s: the player has to read the timeline.
         hints(sync_level("syn-1", "Rendezvous", "Two probes must reach the target together. Choose when to release each.",
             Field::new().fixed(uni(1.2, 0.0)).fixed(radial(4.5, 0.0, -5.0, 1.0)),
             vec![Region::target(4.5, 0.0, 0.8)],
-            sync_rules(vec![v2(-4.5, -2.5), v2(-4.5, 1.0)], vec![SyncCond::meet(0, 1, 0, -0.4, 0.4)])),
+            sync_rules(vec![v2(-4.5, -2.5), v2(-1.0, 1.0)], vec![SyncCond::meet(0, 1, 0, -0.4, 0.4)])),
             &[
                 "Launch both once and watch the timeline: each bar is how long that probe takes to arrive.",
                 "In this field a probe takes the same time whenever it leaves. What matters is how much later one leaves than the other.",
