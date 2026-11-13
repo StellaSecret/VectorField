@@ -327,14 +327,15 @@ impl App {
         }
         let lines = [
             "Mouse: click and drag.   Space / Enter: launch or confirm.   H: hint.   R: retry.   V: replay.   Esc: back.",
-            "G: arrow grid density.   K: high-contrast arrows.   U: unlock every level.   Each mechanic shows its own controls while you play.",
+            "Everything has an on-screen button; the keys are shortcuts.   U: unlock every level.   Each mechanic shows its own controls while you play.",
         ];
         for (i, l) in lines.iter().enumerate() {
             text_c(l, W / 2.0, 640.0 + i as f32 * 26.0, 18.0, gray());
         }
-        text_c(if self.prefs.unlock_all { "All levels unlocked" } else { "" }, W / 2.0, 710.0, 20.0, good_c());
+        settings_buttons(inp, &mut self.prefs, W / 2.0 - 142.0, 700.0, 138.0);
+        text_c(if self.prefs.unlock_all { "All levels unlocked" } else { "" }, W / 2.0, 758.0, 20.0, good_c());
         if !self.save_ok {
-            text_c("Could not save your progress here (storage is blocked or full). It will be lost when you close the game.", W / 2.0, 740.0, 18.0, bad_c());
+            text_c("Could not save your progress here (storage is blocked or full). It will be lost when you close the game.", W / 2.0, 784.0, 18.0, bad_c());
         }
         next
     }
@@ -370,7 +371,9 @@ impl App {
                 next = Screen::Play(Box::new(make_session(*i, self.levels[*i].clone())));
             }
         }
-        text("Esc: back", 60.0, 780.0, 20.0, gray());
+        if ui::button(inp, Rect::new(60.0, 740.0, 150.0, 38.0), "Back (Esc)", true, rgb(90, 96, 118)) {
+            next = Screen::Menu;
+        }
         next
     }
 }
@@ -469,6 +472,18 @@ fn retry_enabled(g: &Game, st: &St) -> bool {
     }
 }
 
+/// The two display settings as buttons (the keys `G` and `K` do the same): the arrow density and high-contrast arrows.
+/// They are in the menu and on every play screen so that nothing in the game needs a keyboard.
+fn settings_buttons(inp: &Input, prefs: &mut Prefs, x: f32, y: f32, w: f32) {
+    let grid = ["off", "1/3", "2/3", "3/3"][prefs.grid.min(3)];
+    if ui::button(inp, Rect::new(x, y, w, 30.0), &format!("Arrows: {grid}"), true, rgb(90, 96, 118)) {
+        prefs.grid = (prefs.grid + 1) % 4;
+    }
+    if ui::button(inp, Rect::new(x + w + 8.0, y, w, 30.0), if prefs.hc { "Contrast: on" } else { "Contrast: off" }, true, rgb(90, 96, 118)) {
+        prefs.hc = !prefs.hc;
+    }
+}
+
 fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
     let dt = get_frame_time() as f64;
     if is_key_pressed(KeyCode::G) {
@@ -497,6 +512,8 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
     // title bar
     text(lvl.title, 20.0, 40.0, 34.0, WHITE);
     text(lvl.objective, 20.0, 68.0, 21.0, gray());
+    // after the frame: `end_area` repaints the header strip to hide spill, so anything drawn before it would vanish
+    settings_buttons(inp, prefs, 996.0, 24.0, 128.0);
     show_msg(&s.st);
     // hints
     let nh = lvl.hints.len();
@@ -537,6 +554,7 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
     let can_replay = match &s.game {
         Game::Steer(g) => g.phase != Phase::Advancing && g.replayable().is_some() && s.st.replay.is_none(),
         Game::Survey(_) => true,
+        Game::Sync(g) => !g.flights.is_empty() && !s.st.sync_playing,
         _ => s.st.anim.is_some(),
     };
     let replay_running = matches!(s.game, Game::Steer(_)) && s.st.replay.is_some();
@@ -556,6 +574,7 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
             }
             // every trail of this round flies again together
             Game::Survey(g) => s.st.anim = Some(Anim::new(survey_items(g))),
+            Game::Sync(g) => sync_start_playback(g, &mut s.st),
             _ => {
                 if let Some(a) = &mut s.st.anim {
                     a.time = 0.0;
@@ -1829,8 +1848,8 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     let mut ly = r::AY + r::AH + 44.0;
     let aids = match (g.spec.rays, g.spec.band) {
         _ if g.spec.paired() && g.spec.rays => "Short lines run back along each arrow. Extend them: where they would meet is a source. From far away, two look like one.",
-        _ if g.spec.typed() && g.spec.rays && st.perps => "Faint lines at right angles to each arrow: they meet at a swirl's centre. P: back to lines along the arrows.",
-        _ if g.spec.typed() && g.spec.rays => "Faint lines along each arrow: they meet at a repeller or an attractor. P: lines at right angles instead (for a swirl).",
+        _ if g.spec.typed() && g.spec.rays && st.perps => "Faint lines at right angles to each arrow: they meet at a swirl's centre. Press the Guide lines button (or P) to go back to lines along the arrows.",
+        _ if g.spec.typed() && g.spec.rays => "Faint lines along each arrow: they meet at a repeller or an attractor. Guide lines button (P): lines at right angles instead (for a swirl).",
         (true, true) => "Faint lines run back along each arrow: where they cross is the source. Shaded: a source there would already have been felt.",
         (true, false) => "Faint lines run back along each arrow. Where they cross is the source.",
         (false, true) if g.spec.preview => "Pale dashes: where a scout released at the cursor would fly with nothing hidden. Shaded: a source there would already have been felt.",
@@ -2005,6 +2024,13 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
             let _ = g.set_marker_kind(g.round().marker_kind.next());
         }
         y += 44.0;
+        if g.spec.rays {
+            let label = format!("Guide lines (P): {}", if st.perps { "across" } else { "along" });
+            if ui::button(inp, Rect::new(PX0, y, PW, 34.0), &label, true, rgb(90, 96, 118)) {
+                st.perps = !st.perps;
+            }
+            y += 44.0;
+        }
     }
     if live {
         let label = format!("Test estimate (T): {} left", g.tests_left());
@@ -2373,6 +2399,18 @@ fn sync_cond_text(l: &Level, c: &SyncCondResult) -> (String, bool) {
     (format!("Probe {b} {place} {when} probe {a}; allowed {allowed}: {verdict}."), miss == 0.0)
 }
 
+/// Play the last flight again on the shared clock (the Launch button and the Replay button both start it).
+fn sync_start_playback(g: &SyncGame, st: &mut St) {
+    if let Some(f) = g.flights.last() {
+        st.sync_end = f.trajs.iter().zip(&f.delays).map(|(t, d)| d + t.duration()).fold(0.0, f64::max);
+        st.sync_clock = 0.0;
+        st.sync_playing = true;
+        st.sync_show = true;
+        st.msg.clear();
+        st.good = None;
+    }
+}
+
 fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     let lvl = g.level().clone();
     let spec = g.spec.clone();
@@ -2533,20 +2571,8 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     let go = ui::button(inp, Rect::new(PX0, y, PW, 44.0), "Launch (Space)", !playing, accent);
     text(&format!("Launches: {}", g.flights.len()), PX0, y + 66.0, 18.0, gray());
     if (go || space()) && !playing {
-        let f = g.launch().clone();
-        st.sync_end = f.trajs.iter().zip(&f.delays).map(|(t, d)| d + t.duration()).fold(0.0, f64::max);
-        st.sync_clock = 0.0;
-        st.sync_playing = true;
-        st.sync_show = true;
-        st.msg.clear();
-        st.good = None;
-    }
-    if is_key_pressed(KeyCode::V) && !g.flights.is_empty() && !playing {
-        st.sync_end = g.flights.last().map_or(0.0, |f| f.trajs.iter().zip(&f.delays).map(|(t, d)| d + t.duration()).fold(0.0, f64::max));
-        st.sync_clock = 0.0;
-        st.sync_playing = true;
-        st.sync_show = true;
-        st.msg.clear();
+        g.launch();
+        sync_start_playback(g, st);
     }
     // What the last flight showed, in one place (after the playback): a probe that never arrived, then every condition
     // with how far outside its allowed range it was. The panel is the only place the verdict is written.
