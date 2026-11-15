@@ -8,7 +8,9 @@ use vfield::modes::*;
 use vfield::modes::{SyncCondResult, SyncSpec, SYNC_DELAY_STEP};
 use vfield::save::Save;
 use vfield::sim::{Outcome, Trajectory};
-use vfield::{levels, Chapter, GustDirs, Level, Reveal, Rules, SourceKind, SurveyGoal, V2};
+use vfield::{
+    levels, Chapter, GustDirs, Level, Reveal, Rules, ScoutAct, SourceKind, SurveyGoal, V2,
+};
 
 const PX0: f32 = 1014.0; // panel content x
 const PW: f32 = 236.0; // panel content width
@@ -51,10 +53,17 @@ struct Anim {
 impl Anim {
     fn new(items: Vec<(Trajectory, Color)>) -> Anim {
         let d = items.iter().map(|i| i.0.duration()).fold(0.0, f64::max);
-        Anim { items, time: 0.0, speed: (d / 2.2).clamp(2.0, 12.0) }
+        Anim {
+            items,
+            time: 0.0,
+            speed: (d / 2.2).clamp(2.0, 12.0),
+        }
     }
     fn dur(&self) -> f64 {
-        self.items.iter().map(|i| i.0.duration()).fold(0.0, f64::max)
+        self.items
+            .iter()
+            .map(|i| i.0.duration())
+            .fold(0.0, f64::max)
     }
     fn done(&self) -> bool {
         self.time >= self.dur() + 0.3
@@ -95,6 +104,8 @@ struct St {
     /// The source being dragged, and the one Delete / the Remove button act on.
     drag: Option<usize>,
     shape_sel: Option<usize>,
+    /// Steer levels with sources: which kind a click places (an index into the level's kinds).
+    steer_kind: usize,
     // Steer
     sel: Option<Action>,
     beat_t: f64,
@@ -131,6 +142,7 @@ enum Game {
     Survey(SurveyGame),
     Shape(ShapeGame),
     Sync(SyncGame),
+    Scout(ScoutGame),
     Position(PositionGame),
     Predict(PredictGame),
     Tempo(TempoGame),
@@ -143,6 +155,7 @@ impl Game {
             Game::Survey(g) => &g.level,
             Game::Shape(g) => g.level(),
             Game::Sync(g) => g.level(),
+            Game::Scout(g) => g.level(),
             Game::Position(g) => &g.level,
             Game::Predict(g) => &g.level,
             Game::Tempo(g) => &g.level,
@@ -155,6 +168,7 @@ impl Game {
             Game::Survey(g) => g.won,
             Game::Shape(g) => g.won,
             Game::Sync(g) => g.won,
+            Game::Scout(g) => g.won,
             Game::Position(g) => g.won,
             Game::Predict(g) => g.passed(),
             Game::Tempo(g) => g.won,
@@ -176,12 +190,20 @@ fn make_session(idx: usize, level: Level) -> Session {
         Rules::Survey { .. } => Game::Survey(SurveyGame::new(level)),
         Rules::Shape { .. } => Game::Shape(ShapeGame::new(level)),
         Rules::Synchronize { .. } => Game::Sync(SyncGame::new(level)),
+        // seeded from the clock, so the order of hidden sources differs between plays
+        Rules::Scout(_) => Game::Scout(ScoutGame::with_seed(
+            level,
+            (macroquad::miniquad::date::now() * 1000.0) as u64,
+        )),
         Rules::Position { .. } => Game::Position(PositionGame::new(level)),
         Rules::Predict { .. } => Game::Predict(PredictGame::new(level)),
         Rules::Tempo { .. } => Game::Tempo(TempoGame::new(level)),
         Rules::Experiment { range, .. } => {
             st.exp_i = range.0;
-            st.exp_est = [range.0 + (range.1 - range.0) * 0.33, range.0 + (range.1 - range.0) * 0.66];
+            st.exp_est = [
+                range.0 + (range.1 - range.0) * 0.33,
+                range.0 + (range.1 - range.0) * 0.66,
+            ];
             Game::Experiment(ExperimentGame::new(level))
         }
     };
@@ -200,18 +222,39 @@ pub struct App {
 
 impl App {
     pub fn new() -> App {
-        let saved = crate::storage::read().map(|t| Save::parse(&t)).unwrap_or_default();
-        App { screen: Screen::Menu, levels: levels::all(), progress: saved.done.into_iter().collect(), prefs: Prefs { grid: saved.grid, hc: saved.hc, unlock_all: false }, save_ok: true }
+        let saved = crate::storage::read()
+            .map(|t| Save::parse(&t))
+            .unwrap_or_default();
+        App {
+            screen: Screen::Menu,
+            levels: levels::all(),
+            progress: saved.done.into_iter().collect(),
+            prefs: Prefs {
+                grid: saved.grid,
+                hc: saved.hc,
+                unlock_all: false,
+            },
+            save_ok: true,
+        }
     }
 
     /// Writes finished levels and the display settings. (The unlock-all switch is a session cheat and is not kept.)
     fn persist(&mut self) {
-        let save = Save { done: self.progress.iter().cloned().collect(), grid: self.prefs.grid, hc: self.prefs.hc };
+        let save = Save {
+            done: self.progress.iter().cloned().collect(),
+            grid: self.prefs.grid,
+            hc: self.prefs.hc,
+        };
         self.save_ok = crate::storage::write(&save.render());
     }
 
     fn chapter_levels(&self, c: Chapter) -> Vec<usize> {
-        self.levels.iter().enumerate().filter(|(_, l)| l.chapter == c).map(|(i, _)| i).collect()
+        self.levels
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.chapter == c)
+            .map(|(i, _)| i)
+            .collect()
     }
     fn done(&self, i: usize) -> bool {
         self.progress.contains(self.levels[i].id)
@@ -220,11 +263,17 @@ impl App {
         if self.prefs.unlock_all || c != Chapter::Combo {
             return true;
         }
-        ["pos-1", "pre-1", "tem-1", "exp-1"].iter().all(|id| self.progress.contains(*id))
+        ["pos-1", "pre-1", "tem-1", "exp-1"]
+            .iter()
+            .all(|id| self.progress.contains(*id))
     }
     fn level_unlocked(&self, c: Chapter, k: usize) -> bool {
         let ids = self.chapter_levels(c);
-        self.prefs.unlock_all || (self.chapter_unlocked(c) && (k == 0 || self.done(ids[k - 1])))
+        let needs = vfield::levels::combo_requires(self.levels[ids[k]].id);
+        self.prefs.unlock_all
+            || (self.chapter_unlocked(c)
+                && (k == 0 || self.done(ids[k - 1]))
+                && needs.iter().all(|id| self.progress.contains(*id)))
     }
 
     pub fn frame(&mut self) {
@@ -257,7 +306,10 @@ impl App {
                     Nav::Next => {
                         let ids = self.chapter_levels(c);
                         match ids.iter().position(|i| *i == s.idx) {
-                            Some(p) if p + 1 < ids.len() => Screen::Play(Box::new(make_session(ids[p + 1], self.levels[ids[p + 1]].clone()))),
+                            Some(p) if p + 1 < ids.len() => Screen::Play(Box::new(make_session(
+                                ids[p + 1],
+                                self.levels[ids[p + 1]].clone(),
+                            ))),
                             _ => Screen::Select(c),
                         }
                     }
@@ -268,7 +320,13 @@ impl App {
 
     fn menu(&mut self, inp: &Input) -> Screen {
         text_c("VECTOR FIELD", W / 2.0, 100.0, 64.0, WHITE);
-        text_c("Read the flow. Steer the probe.", W / 2.0, 150.0, 26.0, gray());
+        text_c(
+            "Read the flow. Steer the probe.",
+            W / 2.0,
+            150.0,
+            26.0,
+            gray(),
+        );
         let mut next = Screen::Menu;
 
         // Layout: five columns. Every mechanic is a fundamental and they fill the grid in order; the capstone
@@ -277,11 +335,23 @@ impl App {
         let cw = (W - 2.0 * margin - 4.0 * gap) / 5.0;
         let col_x = |c: usize| margin + c as f32 * (cw + gap);
         let (row1_y, row_pitch) = (212.0, card_h + 38.0);
-        let mechanics: Vec<Chapter> = Chapter::ALL.iter().copied().filter(|c| *c != Chapter::Combo).collect();
-        let mut slots: Vec<(Chapter, usize, f32)> = mechanics.iter().enumerate().map(|(i, c)| (*c, i % 5, row1_y + (i / 5) as f32 * row_pitch)).collect();
+        let mechanics: Vec<Chapter> = Chapter::ALL
+            .iter()
+            .copied()
+            .filter(|c| *c != Chapter::Combo)
+            .collect();
+        let mut slots: Vec<(Chapter, usize, f32)> = mechanics
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (*c, i % 5, row1_y + (i / 5) as f32 * row_pitch))
+            .collect();
         // the capstone: the last column of the last row of mechanics, or a new row if that row is full
         let last_row = (mechanics.len().saturating_sub(1) / 5) as f32;
-        let combo_row = if mechanics.len() % 5 == 0 { last_row + 1.0 } else { last_row };
+        let combo_row = if mechanics.len().is_multiple_of(5) {
+            last_row + 1.0
+        } else {
+            last_row
+        };
         let combo_y = row1_y + combo_row * row_pitch;
         slots.push((Chapter::Combo, 4, combo_y));
 
@@ -289,7 +359,9 @@ impl App {
         text("CAPSTONE", col_x(4), combo_y - 12.0, 17.0, gray());
 
         // the chapter to play next: the first unlocked one that is not finished
-        let next_up = Chapter::ALL.iter().copied().find(|c| self.chapter_unlocked(*c) && self.chapter_levels(*c).iter().any(|i| !self.done(*i)));
+        let next_up = Chapter::ALL.iter().copied().find(|c| {
+            self.chapter_unlocked(*c) && self.chapter_levels(*c).iter().any(|i| !self.done(*i))
+        });
 
         for (c, col, y) in slots {
             let r = Rect::new(col_x(col), y, cw, card_h);
@@ -298,29 +370,116 @@ impl App {
             let n = ids.iter().filter(|i| self.done(**i)).count();
             let hot = r.contains(inp.mouse) && unlocked;
             let col_c = chapter_color(c);
-            draw_rectangle(r.x, r.y, r.w, r.h, if hot { rgb(54, 62, 82) } else { rgb(36, 41, 56) });
-            draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, if unlocked { alpha(col_c, 0.9) } else { rgb(70, 74, 86) });
-            draw_rectangle(r.x, r.y, r.w, 6.0, if unlocked { col_c } else { rgb(70, 74, 86) });
-            text(c.name(), r.x + 16.0, r.y + 36.0, 26.0, if unlocked { WHITE } else { gray() });
+            draw_rectangle(
+                r.x,
+                r.y,
+                r.w,
+                r.h,
+                if hot {
+                    rgb(54, 62, 82)
+                } else {
+                    rgb(36, 41, 56)
+                },
+            );
+            draw_rectangle_lines(
+                r.x,
+                r.y,
+                r.w,
+                r.h,
+                2.0,
+                if unlocked {
+                    alpha(col_c, 0.9)
+                } else {
+                    rgb(70, 74, 86)
+                },
+            );
+            draw_rectangle(
+                r.x,
+                r.y,
+                r.w,
+                6.0,
+                if unlocked { col_c } else { rgb(70, 74, 86) },
+            );
+            text(
+                c.name(),
+                r.x + 16.0,
+                r.y + 36.0,
+                26.0,
+                if unlocked { WHITE } else { gray() },
+            );
             if unlocked && next_up == Some(c) {
                 text("NEXT", r.x + r.w - 52.0, r.y + 30.0, 15.0, col_c);
             }
             if unlocked {
-                wrap(c.question(), r.x + 16.0, r.y + 62.0, r.w - 32.0, 17.0, gray());
+                wrap(
+                    c.question(),
+                    r.x + 16.0,
+                    r.y + 62.0,
+                    r.w - 32.0,
+                    17.0,
+                    gray(),
+                );
             } else {
                 text("Locked", r.x + 16.0, r.y + 66.0, 18.0, bad_c());
-                wrap("Finish level 1 of Position, Predict, Tempo and Experiment.", r.x + 16.0, r.y + 80.0, r.w - 32.0, 14.0, gray());
+                wrap(
+                    "Finish level 1 of Position, Predict, Tempo and Experiment.",
+                    r.x + 16.0,
+                    r.y + 80.0,
+                    r.w - 32.0,
+                    14.0,
+                    gray(),
+                );
             }
-            // progress: one pip per level, filled when done
-            for k in 0..ids.len() {
-                let (px, py) = (r.x + 16.0 + k as f32 * 20.0, r.y + r.h - 26.0);
-                if k < n.min(ids.len()) && self.done(ids[k]) {
-                    draw_rectangle(px, py, 14.0, 14.0, if unlocked { col_c } else { gray() });
-                } else {
-                    draw_rectangle_lines(px, py, 14.0, 14.0, 2.0, if unlocked { alpha(col_c, 0.7) } else { rgb(70, 74, 86) });
+            // progress: one pip per level, filled when done. More than 8 levels would not fit beside the count, so a
+            // chapter that long (Combinations) shows a bar with one tick per level instead.
+            if ids.len() <= 8 {
+                for k in 0..ids.len() {
+                    let (px, py) = (r.x + 16.0 + k as f32 * 20.0, r.y + r.h - 26.0);
+                    if k < n.min(ids.len()) && self.done(ids[k]) {
+                        draw_rectangle(px, py, 14.0, 14.0, if unlocked { col_c } else { gray() });
+                    } else {
+                        draw_rectangle_lines(
+                            px,
+                            py,
+                            14.0,
+                            14.0,
+                            2.0,
+                            if unlocked {
+                                alpha(col_c, 0.7)
+                            } else {
+                                rgb(70, 74, 86)
+                            },
+                        );
+                    }
+                }
+            } else {
+                let (bx, by, bw) = (r.x + 16.0, r.y + r.h - 26.0, r.w - 32.0 - 52.0);
+                draw_rectangle_lines(
+                    bx,
+                    by,
+                    bw,
+                    14.0,
+                    2.0,
+                    if unlocked {
+                        alpha(col_c, 0.7)
+                    } else {
+                        rgb(70, 74, 86)
+                    },
+                );
+                let done_w = bw * n as f32 / ids.len() as f32;
+                draw_rectangle(bx, by, done_w, 14.0, if unlocked { col_c } else { gray() });
+                for k in 1..ids.len() {
+                    let tx = bx + bw * k as f32 / ids.len() as f32;
+                    draw_line(tx, by + 8.0, tx, by + 14.0, 1.5, rgb(14, 16, 22));
                 }
             }
-            text(&format!("{}/{}", n, ids.len()), r.x + r.w - 44.0, r.y + r.h - 13.0, 17.0, if unlocked { WHITE } else { gray() });
+            text(
+                &format!("{}/{}", n, ids.len()),
+                r.x + r.w - 44.0,
+                r.y + r.h - 13.0,
+                17.0,
+                if unlocked { WHITE } else { gray() },
+            );
             if hot && inp.pressed {
                 next = Screen::Select(c);
             }
@@ -333,7 +492,17 @@ impl App {
             text_c(l, W / 2.0, 640.0 + i as f32 * 26.0, 18.0, gray());
         }
         settings_buttons(inp, &mut self.prefs, W / 2.0 - 142.0, 700.0, 138.0);
-        text_c(if self.prefs.unlock_all { "All levels unlocked" } else { "" }, W / 2.0, 758.0, 20.0, good_c());
+        text_c(
+            if self.prefs.unlock_all {
+                "All levels unlocked"
+            } else {
+                ""
+            },
+            W / 2.0,
+            758.0,
+            20.0,
+            good_c(),
+        );
         if !self.save_ok {
             text_c("Could not save your progress here (storage is blocked or full). It will be lost when you close the game.", W / 2.0, 784.0, 18.0, bad_c());
         }
@@ -348,30 +517,172 @@ impl App {
         text(c.question(), 62.0, 126.0, 26.0, gray());
         let ids = self.chapter_levels(c);
         let mut next = Screen::Select(c);
-        for (k, i) in ids.iter().enumerate() {
-            let r = Rect::new(60.0, 160.0 + k as f32 * 86.0, 900.0, 74.0);
-            let open = self.level_unlocked(c, k);
-            let hot = open && r.contains(inp.mouse);
-            draw_rectangle(r.x, r.y, r.w, r.h, if hot { rgb(54, 62, 82) } else { rgb(36, 41, 56) });
-            draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, if open { chapter_color(c) } else { rgb(70, 74, 86) });
-            text(&format!("{}", k + 1), r.x + 22.0, r.y + 48.0, 40.0, if open { WHITE } else { gray() });
-            text(self.levels[*i].title, r.x + 80.0, r.y + 32.0, 28.0, if open { WHITE } else { gray() });
-            text(self.levels[*i].objective, r.x + 80.0, r.y + 58.0, 19.0, gray());
-            if self.done(*i) {
-                let (cx, cy) = (r.x + r.w - 40.0, r.y + 37.0);
-                draw_circle_lines(cx, cy, 16.0, 3.0, good_c());
-                draw_line(cx - 7.0, cy, cx - 2.0, cy + 6.0, 3.0, good_c());
-                draw_line(cx - 2.0, cy + 6.0, cx + 8.0, cy - 6.0, 3.0, good_c());
-            } else if !open {
-                let (cx, cy) = (r.x + r.w - 40.0, r.y + 37.0);
-                draw_rectangle(cx - 10.0, cy - 2.0, 20.0, 14.0, gray());
-                draw_circle_lines(cx, cy - 4.0, 7.0, 3.0, gray());
+        if c == Chapter::Combo {
+            // Combinations: 18 levels grouped under family headings in two columns (the first two families on the
+            // left, the others on the right), so every row stays readable and the Back button fits.
+            let (mut ycol, mut last) = ([160.0f32; 2], [usize::MAX; 2]);
+            for (k, i) in ids.iter().enumerate() {
+                let fam = levels::combo_family(self.levels[*i].id);
+                let col = fam / 2;
+                let x = 60.0 + col as f32 * 470.0;
+                if last[col] != fam {
+                    text(
+                        levels::COMBO_FAMILIES[fam],
+                        x + 4.0,
+                        ycol[col] + 19.0,
+                        19.0,
+                        chapter_color(c),
+                    );
+                    ycol[col] += 26.0;
+                    last[col] = fam;
+                }
+                let r = Rect::new(x, ycol[col], 440.0, 44.0);
+                ycol[col] += 48.0;
+                let open = self.level_unlocked(c, k);
+                let hot = open && r.contains(inp.mouse);
+                draw_rectangle(
+                    r.x,
+                    r.y,
+                    r.w,
+                    r.h,
+                    if hot {
+                        rgb(54, 62, 82)
+                    } else {
+                        rgb(36, 41, 56)
+                    },
+                );
+                draw_rectangle_lines(
+                    r.x,
+                    r.y,
+                    r.w,
+                    r.h,
+                    2.0,
+                    if open {
+                        chapter_color(c)
+                    } else {
+                        rgb(70, 74, 86)
+                    },
+                );
+                text(
+                    &format!("{}", k + 1),
+                    r.x + 12.0,
+                    r.y + 30.0,
+                    26.0,
+                    if open { WHITE } else { gray() },
+                );
+                text(
+                    &ui::fit_text(self.levels[*i].title, 20.0, r.w - 110.0),
+                    r.x + 54.0,
+                    r.y + 20.0,
+                    20.0,
+                    if open { WHITE } else { gray() },
+                );
+                text(
+                    &ui::fit_text(self.levels[*i].objective, 13.0, r.w - 110.0),
+                    r.x + 54.0,
+                    r.y + 37.0,
+                    13.0,
+                    gray(),
+                );
+                let (cx, cy) = (r.x + r.w - 26.0, r.y + r.h / 2.0);
+                if self.done(*i) {
+                    draw_circle_lines(cx, cy, 11.0, 2.5, good_c());
+                    draw_line(cx - 5.0, cy, cx - 1.0, cy + 4.0, 2.5, good_c());
+                    draw_line(cx - 1.0, cy + 4.0, cx + 6.0, cy - 5.0, 2.5, good_c());
+                } else if !open {
+                    draw_rectangle(cx - 8.0, cy - 1.0, 16.0, 11.0, gray());
+                    draw_circle_lines(cx, cy - 3.0, 5.5, 2.5, gray());
+                }
+                if hot && inp.pressed {
+                    next = Screen::Play(Box::new(make_session(*i, self.levels[*i].clone())));
+                }
             }
-            if hot && inp.pressed {
-                next = Screen::Play(Box::new(make_session(*i, self.levels[*i].clone())));
+        } else {
+            // A chapter with more than 7 levels would use tighter rows so every level and the Back button fit.
+            let compact = ids.len() > 7;
+            // the rows must end above the Back button (y = 740): 540 px shared between the rows, at most 60 px each
+            let (pitch, rh) = if compact {
+                let p = (540.0 / ids.len() as f32).min(60.0);
+                (p, p - 8.0)
+            } else {
+                (86.0, 74.0)
+            };
+            for (k, i) in ids.iter().enumerate() {
+                let r = Rect::new(60.0, 160.0 + k as f32 * pitch, 900.0, rh);
+                let open = self.level_unlocked(c, k);
+                let hot = open && r.contains(inp.mouse);
+                draw_rectangle(
+                    r.x,
+                    r.y,
+                    r.w,
+                    r.h,
+                    if hot {
+                        rgb(54, 62, 82)
+                    } else {
+                        rgb(36, 41, 56)
+                    },
+                );
+                draw_rectangle_lines(
+                    r.x,
+                    r.y,
+                    r.w,
+                    r.h,
+                    2.0,
+                    if open {
+                        chapter_color(c)
+                    } else {
+                        rgb(70, 74, 86)
+                    },
+                );
+                let (num_y, num_sz, title_y, title_sz, obj_y, obj_sz) = if compact {
+                    (
+                        r.y + rh * 0.72,
+                        30.0,
+                        r.y + rh * 0.40,
+                        (rh * 0.62).min(24.0),
+                        r.y + rh * 0.84,
+                        (rh * 0.44).min(17.0),
+                    )
+                } else {
+                    (r.y + 48.0, 40.0, r.y + 32.0, 28.0, r.y + 58.0, 19.0)
+                };
+                text(
+                    &format!("{}", k + 1),
+                    r.x + 22.0,
+                    num_y,
+                    num_sz,
+                    if open { WHITE } else { gray() },
+                );
+                text(
+                    self.levels[*i].title,
+                    r.x + 80.0,
+                    title_y,
+                    title_sz,
+                    if open { WHITE } else { gray() },
+                );
+                text(self.levels[*i].objective, r.x + 80.0, obj_y, obj_sz, gray());
+                if self.done(*i) {
+                    let (cx, cy) = (r.x + r.w - 40.0, r.y + r.h / 2.0);
+                    draw_circle_lines(cx, cy, 16.0, 3.0, good_c());
+                    draw_line(cx - 7.0, cy, cx - 2.0, cy + 6.0, 3.0, good_c());
+                    draw_line(cx - 2.0, cy + 6.0, cx + 8.0, cy - 6.0, 3.0, good_c());
+                } else if !open {
+                    let (cx, cy) = (r.x + r.w - 40.0, r.y + r.h / 2.0);
+                    draw_rectangle(cx - 10.0, cy - 2.0, 20.0, 14.0, gray());
+                    draw_circle_lines(cx, cy - 4.0, 7.0, 3.0, gray());
+                }
+                if hot && inp.pressed {
+                    next = Screen::Play(Box::new(make_session(*i, self.levels[*i].clone())));
+                }
             }
         }
-        if ui::button(inp, Rect::new(60.0, 740.0, 150.0, 38.0), "Back (Esc)", true, rgb(90, 96, 118)) {
+        if ui::button(
+            inp,
+            Rect::new(60.0, 740.0, 150.0, 38.0),
+            "Back (Esc)",
+            true,
+            rgb(90, 96, 118),
+        ) {
             next = Screen::Menu;
         }
         next
@@ -411,7 +722,13 @@ fn panel_header(l: &Level) -> f32 {
     draw_rectangle(1000.0, 80.0, 260.0, 700.0, rgb(26, 30, 42));
     draw_rectangle_lines(1000.0, 80.0, 260.0, 700.0, 2.0, rgb(60, 66, 84));
     let n = l.id.rsplit('-').next().unwrap_or("");
-    text(&format!("{} {}", l.chapter.name().to_uppercase(), n), PX0, 108.0, 22.0, chapter_color(l.chapter));
+    text(
+        &format!("{} {}", l.chapter.name().to_uppercase(), n),
+        PX0,
+        108.0,
+        22.0,
+        chapter_color(l.chapter),
+    );
     // the question can be longer than the panel is wide: wrap it, and let the caller start below it
     wrap(l.chapter.question(), PX0, 130.0, PW, 18.0, gray()).max(150.0)
 }
@@ -446,6 +763,9 @@ fn do_retry(g: &mut Game, st: &mut St) {
             st.sync_show = false;
             st.sync_playing = false;
         }
+        Game::Scout(g) => {
+            g.next_attempt();
+        }
         Game::Survey(g) => {
             let _ = g.retry();
             st.tool = Tool::Scout;
@@ -465,9 +785,12 @@ fn retry_enabled(g: &Game, st: &St) -> bool {
     match g {
         Game::Predict(p) => p.finished(),
         Game::Experiment(e) => !e.runs.is_empty(),
-        Game::Steer(g) => !g.history.is_empty() && g.phase != Phase::Advancing && st.replay.is_none(),
+        Game::Steer(g) => {
+            !g.history.is_empty() && g.phase != Phase::Advancing && st.replay.is_none()
+        }
         Game::Survey(g) => g.finished(),
         Game::Sync(_) => st.sync_show && !st.sync_playing,
+        Game::Scout(g) => g.phase == ScoutPhase::Called,
         _ => st.anim.is_some() || !st.msg.is_empty(),
     }
 }
@@ -476,10 +799,26 @@ fn retry_enabled(g: &Game, st: &St) -> bool {
 /// They are in the menu and on every play screen so that nothing in the game needs a keyboard.
 fn settings_buttons(inp: &Input, prefs: &mut Prefs, x: f32, y: f32, w: f32) {
     let grid = ["off", "1/3", "2/3", "3/3"][prefs.grid.min(3)];
-    if ui::button(inp, Rect::new(x, y, w, 30.0), &format!("Arrows: {grid}"), true, rgb(90, 96, 118)) {
+    if ui::button(
+        inp,
+        Rect::new(x, y, w, 30.0),
+        &format!("Arrows: {grid}"),
+        true,
+        rgb(90, 96, 118),
+    ) {
         prefs.grid = (prefs.grid + 1) % 4;
     }
-    if ui::button(inp, Rect::new(x + w + 8.0, y, w, 30.0), if prefs.hc { "Contrast: on" } else { "Contrast: off" }, true, rgb(90, 96, 118)) {
+    if ui::button(
+        inp,
+        Rect::new(x + w + 8.0, y, w, 30.0),
+        if prefs.hc {
+            "Contrast: on"
+        } else {
+            "Contrast: off"
+        },
+        true,
+        rgb(90, 96, 118),
+    ) {
         prefs.hc = !prefs.hc;
     }
 }
@@ -503,6 +842,7 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
         Game::Survey(g) => survey_frame(g, &mut s.st, inp, prefs),
         Game::Shape(g) => shape_frame(g, &mut s.st, inp, prefs),
         Game::Sync(g) => sync_frame(g, &mut s.st, inp, prefs),
+        Game::Scout(g) => scout_frame(g, &mut s.st, inp, prefs),
         Game::Position(g) => pos_frame(g, &mut s.st, inp, prefs),
         Game::Predict(g) => predict_frame(g, &mut s.st, inp, prefs),
         Game::Tempo(g) => tempo_frame(g, &mut s.st, inp, prefs, dt),
@@ -520,11 +860,22 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
     if s.st.hints > 0 && !s.st.hints_hidden {
         let k = s.st.hints.min(nh);
         let all = hint_texts(&s.game, &lvl);
-        let texts: Vec<String> = (0..k).map(|i| format!("Hint {}: {}", i + 1, all[i])).collect();
-        let heights: Vec<f32> = texts.iter().map(|t| ui::wrap_height(t, 520.0, 18.0) + 10.0).collect();
+        let texts: Vec<String> = (0..k)
+            .map(|i| format!("Hint {}: {}", i + 1, all[i]))
+            .collect();
+        let heights: Vec<f32> = texts
+            .iter()
+            .map(|t| ui::wrap_height(t, 520.0, 18.0) + 10.0)
+            .collect();
         let h = 16.0 + heights.iter().sum::<f32>();
         let top = r::AY + r::AH - 8.0 - h;
-        draw_rectangle(r::AX + 8.0, top, 540.0, h, Color::new(0.05, 0.06, 0.09, 0.88));
+        draw_rectangle(
+            r::AX + 8.0,
+            top,
+            540.0,
+            h,
+            Color::new(0.05, 0.06, 0.09, 0.88),
+        );
         draw_rectangle_lines(r::AX + 8.0, top, 540.0, h, 2.0, r::c_gate());
         let mut yy = top + 26.0;
         for (t, hh) in texts.iter().zip(&heights) {
@@ -536,9 +887,23 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
     let acc = rgb(120, 130, 160);
     // Hint (H) reveals the next hint; once all are out it hides and shows the box, which covers part of the playfield.
     let all_shown = s.st.hints >= nh;
-    let hint_label = if !all_shown { "Hint (H)" } else if s.st.hints_hidden { "Show (H)" } else { "Hide (H)" };
+    let hint_label = if !all_shown {
+        "Hint (H)"
+    } else if s.st.hints_hidden {
+        "Show (H)"
+    } else {
+        "Hide (H)"
+    };
     let hint_enabled = nh > 0 && (!all_shown || s.st.hints > 0);
-    if (ui::button(inp, Rect::new(PX0, 700.0, 116.0, 34.0), hint_label, hint_enabled, acc) || is_key_pressed(KeyCode::H)) && hint_enabled {
+    if (ui::button(
+        inp,
+        Rect::new(PX0, 700.0, 116.0, 34.0),
+        hint_label,
+        hint_enabled,
+        acc,
+    ) || is_key_pressed(KeyCode::H))
+        && hint_enabled
+    {
         if !all_shown {
             s.st.hints += 1;
             s.st.hints_hidden = false;
@@ -546,13 +911,28 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
             s.st.hints_hidden = !s.st.hints_hidden;
         }
     }
-    let retry_label = if matches!(s.game, Game::Experiment(_)) { "Reset (R)" } else { "Retry (R)" };
+    let retry_label = if matches!(s.game, Game::Experiment(_)) {
+        "Reset (R)"
+    } else if matches!(s.game, Game::Scout(_)) {
+        "Next (R)"
+    } else {
+        "Retry (R)"
+    };
     let can_retry = retry_enabled(&s.game, &s.st);
-    if ui::button(inp, Rect::new(PX0 + 120.0, 700.0, 116.0, 34.0), retry_label, can_retry, acc) || (is_key_pressed(KeyCode::R) && can_retry) {
+    if ui::button(
+        inp,
+        Rect::new(PX0 + 120.0, 700.0, 116.0, 34.0),
+        retry_label,
+        can_retry,
+        acc,
+    ) || (is_key_pressed(KeyCode::R) && can_retry)
+    {
         do_retry(&mut s.game, &mut s.st);
     }
     let can_replay = match &s.game {
-        Game::Steer(g) => g.phase != Phase::Advancing && g.replayable().is_some() && s.st.replay.is_none(),
+        Game::Steer(g) => {
+            g.phase != Phase::Advancing && g.replayable().is_some() && s.st.replay.is_none()
+        }
         Game::Survey(_) => true,
         Game::Sync(g) => !g.flights.is_empty() && !s.st.sync_playing,
         _ => s.st.anim.is_some(),
@@ -562,13 +942,25 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
     if vkey == ReplayKey::Stop {
         s.st.replay = None;
     }
-    if ui::button(inp, Rect::new(PX0, 742.0, 116.0, 34.0), "Replay (V)", can_replay, acc) || vkey == ReplayKey::Start {
+    if ui::button(
+        inp,
+        Rect::new(PX0, 742.0, 116.0, 34.0),
+        "Replay (V)",
+        can_replay,
+        acc,
+    ) || vkey == ReplayKey::Start
+    {
         match &s.game {
             Game::Steer(g) => {
                 if let Some(run) = g.replayable() {
                     // re-simulate from the recorded actions: a replay must reproduce, not replay stored pixels
                     if let Ok(r) = g.spec.replay(&run.actions()) {
-                        s.st.replay = Some(SteerReplay { run: r, beat: 0, t: 0.0, hold: 0.0 });
+                        s.st.replay = Some(SteerReplay {
+                            run: r,
+                            beat: 0,
+                            t: 0.0,
+                            hold: 0.0,
+                        });
                     }
                 }
             }
@@ -583,7 +975,13 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
         }
     }
     let mut action = Nav::None;
-    if ui::button(inp, Rect::new(PX0 + 120.0, 742.0, 116.0, 34.0), "Menu (Esc)", true, acc) {
+    if ui::button(
+        inp,
+        Rect::new(PX0 + 120.0, 742.0, 116.0, 34.0),
+        "Menu (Esc)",
+        true,
+        acc,
+    ) {
         action = Nav::Menu;
     }
     // completion banner
@@ -592,22 +990,63 @@ fn play_frame(s: &mut Session, inp: &Input, prefs: &mut Prefs) -> Nav {
         let b = Rect::new(r::AX + r::AW / 2.0 - 240.0, r::AY + 12.0, 480.0, 176.0);
         draw_rectangle(b.x, b.y, b.w, b.h, Color::new(0.06, 0.08, 0.12, 0.96));
         draw_rectangle_lines(b.x, b.y, b.w, b.h, 4.0, good_c());
-        text_c("Level complete", b.x + b.w / 2.0, b.y + 36.0, 40.0, good_c());
+        text_c(
+            "Level complete",
+            b.x + b.w / 2.0,
+            b.y + 36.0,
+            40.0,
+            good_c(),
+        );
         let detail = match &s.game {
-            Game::Steer(g) => format!("Gusts used: {} of {}   Attempts: {}", g.run().gusts_used(), g.spec.budget, g.attempts + 1),
-            Game::Survey(g) => format!("Attempts: {}   Scouts used last round: {} of {}", g.attempts(), g.round().paid(), g.spec.budget),
+            Game::Steer(g) => format!(
+                "Gusts used: {} of {}   Attempts: {}",
+                g.run().gusts_used(),
+                g.spec.budget,
+                g.attempts + 1
+            ),
+            Game::Survey(g) => format!(
+                "Attempts: {}   Scouts used last round: {} of {}",
+                g.attempts(),
+                g.round().paid(),
+                g.spec.budget
+            ),
             Game::Sync(g) => format!("Launches used: {}", g.flights.len()),
-            Game::Shape(g) => format!("Launches used: {}   Sources in the winning field: {}", g.attempts.len(), g.attempts.last().map_or(0, |a| a.sources.len())),
+            Game::Scout(g) => format!(
+                "Calls in a row: {}   Attempts: {}",
+                g.best_streak,
+                g.calls.len()
+            ),
+            Game::Shape(g) => format!(
+                "Launches used: {}   Sources in the winning field: {}",
+                g.attempts.len(),
+                g.attempts.last().map_or(0, |a| a.sources.len())
+            ),
             Game::Position(g) => format!("Launches used: {}", g.attempts.len()),
-            Game::Predict(g) => format!("Forecasts correct: {} of {}", g.correct_count(), g.rounds.len()),
+            Game::Predict(g) => format!(
+                "Forecasts correct: {} of {}",
+                g.correct_count(),
+                g.rounds.len()
+            ),
             Game::Tempo(g) => format!("Launches used: {}", g.attempts.len()),
             Game::Experiment(g) => format!("Experiments run: {}", g.runs.len()),
         };
         text_c(&detail, b.x + b.w / 2.0, b.y + 74.0, 22.0, WHITE);
-        if ui::button(inp, Rect::new(b.x + 20.0, b.y + 106.0, 200.0, 50.0), "Next (N)", true, good_c()) {
+        if ui::button(
+            inp,
+            Rect::new(b.x + 20.0, b.y + 106.0, 200.0, 50.0),
+            "Next (N)",
+            true,
+            good_c(),
+        ) {
             action = Nav::Next;
         }
-        if ui::button(inp, Rect::new(b.x + 260.0, b.y + 106.0, 200.0, 50.0), "Keep playing", true, rgb(120, 130, 160)) {
+        if ui::button(
+            inp,
+            Rect::new(b.x + 260.0, b.y + 106.0, 200.0, 50.0),
+            "Keep playing",
+            true,
+            rgb(120, 130, 160),
+        ) {
             s.st.banner = false;
         }
     }
@@ -666,14 +1105,23 @@ fn pos_frame(g: &mut PositionGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         _ => g.phase,
     };
     r::begin_area();
-    r::draw_field(&lvl.field.with_intensity(g.intensity), ft, prefs.grid, prefs.hc);
+    r::draw_field(
+        &lvl.field.with_intensity(g.intensity),
+        ft,
+        prefs.grid,
+        prefs.hc,
+    );
     for s in &slots {
         r::draw_zone(&s.zone);
     }
     for reg in &lvl.regions {
         r::draw_region(reg, false);
     }
-    let keep = if st.anim.is_some() { g.attempts.len().saturating_sub(1) } else { g.attempts.len() };
+    let keep = if st.anim.is_some() {
+        g.attempts.len().saturating_sub(1)
+    } else {
+        g.attempts.len()
+    };
     for a in g.attempts[..keep].iter().rev().take(3) {
         for t in &a.trajs {
             r::draw_path(&t.points, alpha(r::c_probe(), 0.22), 2.0);
@@ -707,7 +1155,11 @@ fn pos_frame(g: &mut PositionGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         st.active_slot = (st.active_slot + 1) % slots.len();
     }
     if !flying {
-        let sp = if is_key_down(KeyCode::LeftShift) { 0.25 } else { 1.2 } * get_frame_time() as f64;
+        let sp = if is_key_down(KeyCode::LeftShift) {
+            0.25
+        } else {
+            1.2
+        } * get_frame_time() as f64;
         let mut d = V2::ZERO;
         if is_key_down(KeyCode::Left) {
             d.x -= sp;
@@ -733,13 +1185,36 @@ fn pos_frame(g: &mut PositionGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     let mut y = panel_header(&lvl);
     y = wrap("Click inside a shaded zone to place the probe, or use the arrow keys (Shift for fine steps).", PX0, y + 8.0, PW, 17.0, gray());
     if multi {
-        y = wrap(&format!("Probe {} selected (Tab switches). Every probe must reach its own target.", st.active_slot + 1), PX0, y + 4.0, PW, 17.0, WHITE);
+        y = wrap(
+            &format!(
+                "Probe {} selected (Tab switches). Every probe must reach its own target.",
+                st.active_slot + 1
+            ),
+            PX0,
+            y + 4.0,
+            PW,
+            17.0,
+            WHITE,
+        );
     }
     if let Some((lo, hi)) = g.intensity_range() {
         y += 8.0;
-        text(&format!("Shared intensity: {:.2}", g.intensity), PX0, y + 14.0, 19.0, WHITE);
+        text(
+            &format!("Shared intensity: {:.2}", g.intensity),
+            PX0,
+            y + 14.0,
+            19.0,
+            WHITE,
+        );
         let mut v = g.intensity;
-        if ui::slider(inp, Rect::new(PX0, y + 24.0, PW, 16.0), &mut v, lo, hi, r::c_zone()) {
+        if ui::slider(
+            inp,
+            Rect::new(PX0, y + 24.0, PW, 16.0),
+            &mut v,
+            lo,
+            hi,
+            r::c_zone(),
+        ) {
             g.set_intensity(v);
             st.anim = None;
         }
@@ -752,7 +1227,17 @@ fn pos_frame(g: &mut PositionGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         y += 52.0;
     }
     if let Some(per) = g.period() {
-        y = wrap(&format!("Launch phase {:.1} s. Click the timeline below, or press , and .", g.phase), PX0, y + 8.0, PW, 17.0, WHITE);
+        y = wrap(
+            &format!(
+                "Launch phase {:.1} s. Click the timeline below, or press , and .",
+                g.phase
+            ),
+            PX0,
+            y + 8.0,
+            PW,
+            17.0,
+            WHITE,
+        );
         if !flying {
             if is_key_pressed(KeyCode::Comma) {
                 g.set_phase(g.phase - 0.25);
@@ -763,7 +1248,14 @@ fn pos_frame(g: &mut PositionGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         }
         let marks: Vec<(f64, bool)> = g.attempts.iter().map(|a| (a.phase, a.success)).collect();
         let cur = if flying { ft } else { g.phase };
-        if let Some(p) = ui::timeline(inp, Rect::new(r::AX, 752.0, r::AW, 28.0), per, cur, &marks, "Launch phase (triangle = reached, cross = missed)") {
+        if let Some(p) = ui::timeline(
+            inp,
+            Rect::new(r::AX, 752.0, r::AW, 28.0),
+            per,
+            cur,
+            &marks,
+            "Launch phase (triangle = reached, cross = missed)",
+        ) {
             if !flying {
                 g.set_phase(p);
                 st.anim = None;
@@ -771,11 +1263,33 @@ fn pos_frame(g: &mut PositionGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         }
     }
     y += 10.0;
-    let go = ui::button(inp, Rect::new(PX0, y, PW, 44.0), "Launch (Space)", g.ready() && !flying, chapter_color(Chapter::Position));
-    text(&format!("Launches: {}", g.attempts.len()), PX0, y + 66.0, 18.0, gray());
+    let go = ui::button(
+        inp,
+        Rect::new(PX0, y, PW, 44.0),
+        "Launch (Space)",
+        g.ready() && !flying,
+        chapter_color(Chapter::Position),
+    );
+    text(
+        &format!("Launches: {}", g.attempts.len()),
+        PX0,
+        y + 66.0,
+        18.0,
+        gray(),
+    );
     if (go || space()) && g.ready() && !flying {
         if let Some(a) = g.launch().cloned() {
-            let items = a.trajs.iter().enumerate().map(|(i, t)| (t.clone(), if multi { r::run_color(i) } else { r::c_probe() })).collect();
+            let items = a
+                .trajs
+                .iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    (
+                        t.clone(),
+                        if multi { r::run_color(i) } else { r::c_probe() },
+                    )
+                })
+                .collect();
             st.anim = Some(Anim::new(items));
             st.good = Some(a.success);
             st.msg = if a.success {
@@ -791,7 +1305,11 @@ fn pos_frame(g: &mut PositionGame, st: &mut St, inp: &Input, prefs: &Prefs) {
                     } else {
                         short(&lvl, t.outcome)
                     };
-                    parts.push(if multi { format!("Probe {}: {}.", i + 1, txt) } else { format!("Result: {}.", txt) });
+                    parts.push(if multi {
+                        format!("Probe {}: {}.", i + 1, txt)
+                    } else {
+                        format!("Result: {}.", txt)
+                    });
                 }
                 parts.join(" ")
             };
@@ -821,7 +1339,13 @@ fn predict_frame(g: &mut PredictGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         let from = r::w2s(round.start);
         let edge = c + (from - c).normalize_or_zero() * (lvl.regions[sel].radius as f32 * r::PX);
         r::dashed_line(from, edge, r::c_predict(), 2.5);
-        text("your forecast", (c.x - 40.0).clamp(r::AX + 4.0, r::AX + r::AW - 110.0), (c.y + lvl.regions[sel].radius as f32 * r::PX + 18.0).min(r::AY + r::AH - 6.0), 18.0, r::c_predict());
+        text(
+            "your forecast",
+            (c.x - 40.0).clamp(r::AX + 4.0, r::AX + r::AW - 110.0),
+            (c.y + lvl.regions[sel].radius as f32 * r::PX + 18.0).min(r::AY + r::AH - 6.0),
+            18.0,
+            r::c_predict(),
+        );
     }
     draw_anim(st);
     r::draw_start(round.start);
@@ -866,23 +1390,52 @@ fn predict_frame(g: &mut PredictGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         }
     }
     y += 44.0;
-    text(&format!("Need {} correct.", g.pass_mark()), PX0, y, 18.0, gray());
+    text(
+        &format!("Need {} correct.", g.pass_mark()),
+        PX0,
+        y,
+        18.0,
+        gray(),
+    );
     y += 20.0;
     text("Your forecast:", PX0, y + 14.0, 18.0, WHITE);
     y += 22.0;
     for (k, e) in exits.iter().enumerate() {
         let sel = g.selected == Some(*e);
         let rect = Rect::new(PX0 + k as f32 * 60.0, y, 54.0, 40.0);
-        if ui::button(inp, rect, &lvl.regions[*e].label.to_string(), !g.revealed, if sel { r::c_predict() } else { rgb(120, 130, 160) }) {
+        if ui::button(
+            inp,
+            rect,
+            &lvl.regions[*e].label.to_string(),
+            !g.revealed,
+            if sel {
+                r::c_predict()
+            } else {
+                rgb(120, 130, 160)
+            },
+        ) {
             g.select(*e);
         }
         if sel {
-            draw_rectangle_lines(rect.x - 3.0, rect.y - 3.0, rect.w + 6.0, rect.h + 6.0, 3.0, r::c_predict());
+            draw_rectangle_lines(
+                rect.x - 3.0,
+                rect.y - 3.0,
+                rect.w + 6.0,
+                rect.h + 6.0,
+                3.0,
+                r::c_predict(),
+            );
         }
     }
     y += 54.0;
     let can_commit = g.selected.is_some() && !g.revealed;
-    let commit = ui::button(inp, Rect::new(PX0, y, PW, 44.0), "Commit forecast (Space)", can_commit, chapter_color(Chapter::Predict));
+    let commit = ui::button(
+        inp,
+        Rect::new(PX0, y, PW, 44.0),
+        "Commit forecast (Space)",
+        can_commit,
+        chapter_color(Chapter::Predict),
+    );
     y += 54.0;
     if can_commit && (commit || space()) {
         if let Some(res) = g.commit() {
@@ -890,7 +1443,14 @@ fn predict_frame(g: &mut PredictGame, st: &mut St, inp: &Input, prefs: &Prefs) {
             let actual = lvl.regions[round.answer].label;
             let chosen = lvl.regions[res.chosen].label;
             st.good = Some(res.correct);
-            let mut m = if res.correct { format!("Correct! It left through exit {}.", actual) } else { format!("Not quite. You said {}; it left through exit {}.", chosen, actual) };
+            let mut m = if res.correct {
+                format!("Correct! It left through exit {}.", actual)
+            } else {
+                format!(
+                    "Not quite. You said {}; it left through exit {}.",
+                    chosen, actual
+                )
+            };
             if g.finished() {
                 m += &format!(" Score {} of {}.", g.correct_count(), g.rounds.len());
                 if !g.passed() {
@@ -901,7 +1461,13 @@ fn predict_frame(g: &mut PredictGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         }
     }
     if g.revealed && !st.flying() && !g.finished() {
-        let next = ui::button(inp, Rect::new(PX0, y, PW, 44.0), "Next round (Space)", true, chapter_color(Chapter::Predict));
+        let next = ui::button(
+            inp,
+            Rect::new(PX0, y, PW, 44.0),
+            "Next round (Space)",
+            true,
+            chapter_color(Chapter::Predict),
+        );
         if next || space() {
             g.next_round();
             st.anim = None;
@@ -945,7 +1511,18 @@ fn tempo_frame(g: &mut TempoGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
     r::end_area();
 
     let marks: Vec<(f64, bool)> = g.attempts.iter().map(|a| (a.phase, a.success)).collect();
-    if let Some(p) = ui::timeline(inp, Rect::new(r::AX, 752.0, r::AW, 28.0), period, ft, &marks, &format!("Field phase {:.1} s of {:.0} s  (triangle = reached, cross = missed)", ft.rem_euclid(period), period)) {
+    if let Some(p) = ui::timeline(
+        inp,
+        Rect::new(r::AX, 752.0, r::AW, 28.0),
+        period,
+        ft,
+        &marks,
+        &format!(
+            "Field phase {:.1} s of {:.0} s  (triangle = reached, cross = missed)",
+            ft.rem_euclid(period),
+            period
+        ),
+    ) {
         if !flying {
             g.set_phase(p);
             st.anim = None;
@@ -962,15 +1539,38 @@ fn tempo_frame(g: &mut TempoGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
     let mut y = panel_header(&lvl);
     y = wrap("The field changes with time. Watch it, scrub the timeline, then launch at the moment you choose.", PX0, y + 8.0, PW, 17.0, gray());
     y += 6.0;
-    text(&format!("Field clock: {:.1} s", g.clock), PX0, y + 14.0, 20.0, WHITE);
+    text(
+        &format!("Field clock: {:.1} s", g.clock),
+        PX0,
+        y + 14.0,
+        20.0,
+        WHITE,
+    );
     y += 28.0;
-    if ui::button(inp, Rect::new(PX0, y, PW, 36.0), if g.playing { "Pause field (P)" } else { "Play field (P)" }, !flying, rgb(120, 130, 160)) || (is_key_pressed(KeyCode::P) && !flying) {
+    if ui::button(
+        inp,
+        Rect::new(PX0, y, PW, 36.0),
+        if g.playing {
+            "Pause field (P)"
+        } else {
+            "Play field (P)"
+        },
+        !flying,
+        rgb(120, 130, 160),
+    ) || (is_key_pressed(KeyCode::P) && !flying)
+    {
         g.playing = !g.playing;
     }
     y += 46.0;
     text("Left/Right: step the clock", PX0, y + 10.0, 16.0, gray());
     y += 24.0;
-    let go = ui::button(inp, Rect::new(PX0, y, PW, 44.0), "Launch now (Space)", !flying, chapter_color(Chapter::Tempo));
+    let go = ui::button(
+        inp,
+        Rect::new(PX0, y, PW, 44.0),
+        "Launch now (Space)",
+        !flying,
+        chapter_color(Chapter::Tempo),
+    );
     y += 56.0;
     if (go || space()) && !flying {
         let a = g.launch().clone();
@@ -981,14 +1581,33 @@ fn tempo_frame(g: &mut TempoGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
         } else if a.traj.outcome == Outcome::Reached(0) {
             "The probe reached the target but skipped the gate.".to_string()
         } else {
-            format!("Missed: {}. Scrub the timeline and compare how the field looks.", short(&lvl, a.traj.outcome))
+            format!(
+                "Missed: {}. Scrub the timeline and compare how the field looks.",
+                short(&lvl, a.traj.outcome)
+            )
         };
     }
-    text(&format!("Launches: {}", g.attempts.len()), PX0, y + 8.0, 18.0, gray());
+    text(
+        &format!("Launches: {}", g.attempts.len()),
+        PX0,
+        y + 8.0,
+        18.0,
+        gray(),
+    );
     for (i, a) in g.attempts.iter().rev().take(4).enumerate() {
         let yy = y + 30.0 + i as f32 * 20.0;
         let c = if a.success { good_c() } else { bad_c() };
-        text(&format!("{:>5.1} s  {}", a.traj.t0, if a.success { "reached" } else { "missed" }), PX0, yy, 17.0, c);
+        text(
+            &format!(
+                "{:>5.1} s  {}",
+                a.traj.t0,
+                if a.success { "reached" } else { "missed" }
+            ),
+            PX0,
+            yy,
+            17.0,
+            c,
+        );
     }
 }
 
@@ -1001,7 +1620,12 @@ fn exp_frame(g: &mut ExperimentGame, st: &mut St, inp: &Input, prefs: &Prefs, dt
         _ => unreachable!(),
     };
     r::begin_area();
-    r::draw_field(&lvl.field.with_intensity(st.exp_i), 0.0, prefs.grid, prefs.hc);
+    r::draw_field(
+        &lvl.field.with_intensity(st.exp_i),
+        0.0,
+        prefs.grid,
+        prefs.hc,
+    );
     for reg in &lvl.regions {
         r::draw_region(reg, false);
     }
@@ -1018,7 +1642,11 @@ fn exp_frame(g: &mut ExperimentGame, st: &mut St, inp: &Input, prefs: &Prefs, dt
             r::draw_probe(run.traj.pos_at(a.time), col);
         } else {
             r::draw_path(&run.traj.points, col, 2.5);
-            r::draw_marker_end(run.traj.end(), col, &format!("#{} I={:.2}", i + 1, run.intensity));
+            r::draw_marker_end(
+                run.traj.end(),
+                col,
+                &format!("#{} I={:.2}", i + 1, run.intensity),
+            );
         }
     }
     r::draw_start(start);
@@ -1037,22 +1665,52 @@ fn exp_frame(g: &mut ExperimentGame, st: &mut St, inp: &Input, prefs: &Prefs, dt
     }
     let mut y = panel_header(&lvl);
     y = wrap(&g.question(), PX0, y + 8.0, PW, 17.0, WHITE) + 4.0;
-    text(&format!("Intensity {:.2}", st.exp_i), PX0, y + 14.0, 19.0, WHITE);
+    text(
+        &format!("Intensity {:.2}", st.exp_i),
+        PX0,
+        y + 14.0,
+        19.0,
+        WHITE,
+    );
     y += 22.0;
-    ui::slider(inp, Rect::new(PX0, y, PW, 18.0), &mut st.exp_i, lo, hi, chapter_color(Chapter::Experiment));
+    ui::slider(
+        inp,
+        Rect::new(PX0, y, PW, 18.0),
+        &mut st.exp_i,
+        lo,
+        hi,
+        chapter_color(Chapter::Experiment),
+    );
     let lim = g.rig_limit();
     if lim < hi {
         let x = PX0 + PW * ((lim - lo) / (hi - lo)) as f32;
         draw_rectangle(x, y + 22.0, PX0 + PW - x, 5.0, r::c_hazard());
-        text(&format!("rig stops at {:.1}", lim), x - 90.0, y + 40.0, 14.0, r::c_hazard());
+        text(
+            &format!("rig stops at {:.1}", lim),
+            x - 90.0,
+            y + 40.0,
+            14.0,
+            r::c_hazard(),
+        );
     }
     y += 40.0;
-    let run = ui::button(inp, Rect::new(PX0, y, 116.0, 34.0), "Run (Space)", !flying, chapter_color(Chapter::Experiment));
+    let run = ui::button(
+        inp,
+        Rect::new(PX0, y, 116.0, 34.0),
+        "Run (Space)",
+        !flying,
+        chapter_color(Chapter::Experiment),
+    );
     if (run || space()) && !flying {
         match g.run(st.exp_i) {
             Ok(i) => {
                 let t = g.runs[i].traj.clone();
-                st.msg = format!("Run {}: intensity {:.2} -> {}.", i + 1, g.runs[i].intensity, short(&lvl, t.outcome));
+                st.msg = format!(
+                    "Run {}: intensity {:.2} -> {}.",
+                    i + 1,
+                    g.runs[i].intensity,
+                    short(&lvl, t.outcome)
+                );
                 st.good = None;
                 st.anim = Some(Anim::new(vec![(t, r::run_color(i))]));
             }
@@ -1062,7 +1720,13 @@ fn exp_frame(g: &mut ExperimentGame, st: &mut St, inp: &Input, prefs: &Prefs, dt
             }
         }
     }
-    if ui::button(inp, Rect::new(PX0 + 120.0, y, 116.0, 34.0), "Reset runs", !g.runs.is_empty(), rgb(120, 130, 160)) {
+    if ui::button(
+        inp,
+        Rect::new(PX0 + 120.0, y, 116.0, 34.0),
+        "Reset runs",
+        !g.runs.is_empty(),
+        rgb(120, 130, 160),
+    ) {
         st.anim = None;
         st.msg.clear();
         st.good = None;
@@ -1082,7 +1746,18 @@ fn exp_frame(g: &mut ExperimentGame, st: &mut St, inp: &Input, prefs: &Prefs, dt
         } else {
             draw_circle_lines(PX0 + 8.0, rr.y + 10.0, 6.0, 2.0, col);
         }
-        text(&format!("#{}  I={:.2}  {}", i + 1, g.runs[i].intensity, short(&lvl, g.runs[i].traj.outcome)), PX0 + 22.0, rr.y + 15.0, 16.0, if g.runs[i].visible { WHITE } else { gray() });
+        text(
+            &format!(
+                "#{}  I={:.2}  {}",
+                i + 1,
+                g.runs[i].intensity,
+                short(&lvl, g.runs[i].traj.outcome)
+            ),
+            PX0 + 22.0,
+            rr.y + 15.0,
+            16.0,
+            if g.runs[i].visible { WHITE } else { gray() },
+        );
         if inp.pressed && rr.contains(inp.mouse) {
             g.toggle_visible(i);
         }
@@ -1092,12 +1767,25 @@ fn exp_frame(g: &mut ExperimentGame, st: &mut St, inp: &Input, prefs: &Prefs, dt
     y += 12.0;
     for (k, (label, ok)) in g.evidence().iter().enumerate() {
         let yy = y + k as f32 * 17.0;
-        draw_rectangle_lines(PX0, yy, 11.0, 11.0, 2.0, if *ok { good_c() } else { gray() });
+        draw_rectangle_lines(
+            PX0,
+            yy,
+            11.0,
+            11.0,
+            2.0,
+            if *ok { good_c() } else { gray() },
+        );
         if *ok {
             draw_line(PX0 + 2.0, yy + 6.0, PX0 + 5.0, yy + 9.0, 2.0, good_c());
             draw_line(PX0 + 5.0, yy + 9.0, PX0 + 10.0, yy + 1.0, 2.0, good_c());
         }
-        text(label, PX0 + 17.0, yy + 11.0, 15.0, if *ok { good_c() } else { gray() });
+        text(
+            label,
+            PX0 + 17.0,
+            yy + 11.0,
+            15.0,
+            if *ok { good_c() } else { gray() },
+        );
     }
     y += 3.0 * 17.0 + 8.0;
     text("Your conclusion", PX0, y + 8.0, 15.0, gray());
@@ -1106,30 +1794,79 @@ fn exp_frame(g: &mut ExperimentGame, st: &mut St, inp: &Input, prefs: &Prefs, dt
     let choices = g.choices();
     let mut submit: Option<Conclusion> = None;
     if !choices.is_empty() {
-        let short_label = |s: &str| -> String { s.split([':', '/']).next().unwrap_or(s).trim().to_string() };
+        let short_label =
+            |s: &str| -> String { s.split([':', '/']).next().unwrap_or(s).trim().to_string() };
         for (k, c) in choices.iter().enumerate() {
-            let rect = Rect::new(PX0 + (k % 2) as f32 * 120.0, y + (k / 2) as f32 * 30.0, 116.0, 26.0);
+            let rect = Rect::new(
+                PX0 + (k % 2) as f32 * 120.0,
+                y + (k / 2) as f32 * 30.0,
+                116.0,
+                26.0,
+            );
             let sel = st.exp_choice == Some(k);
-            if ui::button(inp, rect, &short_label(c), can, if sel { good_c() } else { rgb(120, 130, 160) }) {
+            if ui::button(
+                inp,
+                rect,
+                &short_label(c),
+                can,
+                if sel { good_c() } else { rgb(120, 130, 160) },
+            ) {
                 st.exp_choice = Some(k);
             }
             if sel {
-                draw_rectangle_lines(rect.x - 2.0, rect.y - 2.0, rect.w + 4.0, rect.h + 4.0, 3.0, good_c());
+                draw_rectangle_lines(
+                    rect.x - 2.0,
+                    rect.y - 2.0,
+                    rect.w + 4.0,
+                    rect.h + 4.0,
+                    3.0,
+                    good_c(),
+                );
             }
         }
         let k = choices.len();
-        let rect = Rect::new(PX0 + (k % 2) as f32 * 120.0, y + (k / 2) as f32 * 30.0, 116.0, 26.0);
-        if ui::button(inp, rect, "Submit", can && st.exp_choice.is_some(), good_c()) {
+        let rect = Rect::new(
+            PX0 + (k % 2) as f32 * 120.0,
+            y + (k / 2) as f32 * 30.0,
+            116.0,
+            26.0,
+        );
+        if ui::button(
+            inp,
+            rect,
+            "Submit",
+            can && st.exp_choice.is_some(),
+            good_c(),
+        ) {
             submit = Some(Conclusion::Choice(st.exp_choice.unwrap()));
         }
     } else {
         let n = g.estimate_count();
         for k in 0..n {
-            text(&format!("Estimate {}: {:.2}", k + 1, st.exp_est[k]), PX0, y + 10.0, 15.0, WHITE);
-            ui::slider(inp, Rect::new(PX0, y + 14.0, PW, 12.0), &mut st.exp_est[k], lo, hi, good_c());
+            text(
+                &format!("Estimate {}: {:.2}", k + 1, st.exp_est[k]),
+                PX0,
+                y + 10.0,
+                15.0,
+                WHITE,
+            );
+            ui::slider(
+                inp,
+                Rect::new(PX0, y + 14.0, PW, 12.0),
+                &mut st.exp_est[k],
+                lo,
+                hi,
+                good_c(),
+            );
             y += 34.0;
         }
-        if ui::button(inp, Rect::new(PX0, y, PW, 30.0), "Report finding", can, good_c()) {
+        if ui::button(
+            inp,
+            Rect::new(PX0, y, PW, 30.0),
+            "Report finding",
+            can,
+            good_c(),
+        ) {
             submit = Some(Conclusion::Estimates(st.exp_est[..n].to_vec()));
         }
     }
@@ -1174,9 +1911,15 @@ fn dir_for(dirs: GustDirs, eight: usize) -> Option<usize> {
 
 fn end_message(e: End, g: &SteerGame) -> String {
     match e {
-        End::Success => format!("Reached the target on beat {} using {} gust(s).", g.beat(), g.run().gusts_used()),
+        End::Success => format!(
+            "Reached the target on beat {} using {} gust(s).",
+            g.beat(),
+            g.run().gusts_used()
+        ),
         End::Failed(FailReason::Boundary) => "The probe left the field.".into(),
-        End::Failed(FailReason::BeatsExhausted) => "Out of beats before reaching the target.".into(),
+        End::Failed(FailReason::BeatsExhausted) => {
+            "Out of beats before reaching the target.".into()
+        }
         End::Failed(FailReason::Invalid) => "Numerical error: the run was stopped.".into(),
         End::Failed(FailReason::Hazard) => "The probe hit a hazard.".into(),
         End::Failed(FailReason::MissedGate) => "Reached the target but skipped the gate.".into(),
@@ -1184,7 +1927,13 @@ fn end_message(e: End, g: &SteerGame) -> String {
     }
 }
 
-fn draw_run_path(run: &SteerRun, col: Color, th: f32, gust_col: Color, upto_beat: Option<(usize, usize)>) {
+fn draw_run_path(
+    run: &SteerRun,
+    col: Color,
+    th: f32,
+    gust_col: Color,
+    upto_beat: Option<(usize, usize)>,
+) {
     // upto_beat = (beat index in progress, number of its points to show); earlier beats are drawn fully
     for (i, b) in run.beats.iter().enumerate() {
         let pts: Vec<V2> = match upto_beat {
@@ -1207,6 +1956,431 @@ fn draw_run_path(run: &SteerRun, col: Color, th: f32, gust_col: Color, upto_beat
             text(&format!("{}", i + 1), p.x + 6.0, p.y - 10.0, 16.0, gust_col);
         }
     }
+}
+
+fn scout_frame(g: &mut ScoutGame, st: &mut St, inp: &Input, prefs: &Prefs) {
+    let accent = chapter_color(Chapter::Combo);
+    let lvl = g.level().clone();
+    let spec = g.spec.clone();
+    let scouting = g.phase == ScoutPhase::Scouting;
+    r::begin_area();
+    // the visible background only: the hidden source is not drawn
+    r::draw_field(&lvl.field, 0.0, prefs.grid, prefs.hc);
+    // the strip scouts may start in
+    {
+        let (a, b) = (r::w2s(spec.rules.zone.min), r::w2s(spec.rules.zone.max));
+        let (x, y, w, h) = (
+            a.x.min(b.x),
+            a.y.min(b.y),
+            (a.x - b.x).abs(),
+            (a.y - b.y).abs(),
+        );
+        draw_rectangle(x, y, w, h, alpha(accent, 0.12));
+        draw_rectangle_lines(x, y, w, h, 2.0, alpha(accent, 0.6));
+    }
+    for reg in &lvl.regions {
+        r::draw_region(reg, false);
+        // the exit letters, so the call buttons can be matched to the gates
+        let c = r::w2s(reg.center);
+        text(&reg.label.to_string(), c.x + 20.0, c.y - 20.0, 26.0, WHITE);
+    }
+    // each scout's trail and the push it felt (a short arrow per sample, along the push)
+    for s in g.scouts.iter() {
+        r::draw_path(&s.trail, alpha(accent, 0.85), 2.5);
+        let o = r::w2s(s.start);
+        draw_circle(o.x, o.y, 5.0, accent);
+        for (p, f) in &s.pushes {
+            let len = (0.25 + 0.25 * f.len()).min(0.9);
+            let q = *p
+                + V2 {
+                    x: f.x / f.len() * len,
+                    y: f.y / f.len() * len,
+                };
+            r::draw_arrow(r::w2s(*p), r::w2s(q), rgb(240, 200, 90), 2.5, false);
+        }
+    }
+    let mut hover_note = String::new();
+    if scouting && g.scouts_left() > 0 && r::in_area(inp.mouse) {
+        let aim = r::s2w(inp.mouse);
+        let sp = r::w2s(aim);
+        if spec.legal_scout(aim) {
+            draw_circle_lines(sp.x, sp.y, 9.0, 2.0, alpha(accent, 0.9));
+        } else {
+            draw_line(
+                sp.x - 8.0,
+                sp.y - 8.0,
+                sp.x + 8.0,
+                sp.y + 8.0,
+                2.5,
+                alpha(r::c_hazard(), 0.9),
+            );
+            draw_line(
+                sp.x - 8.0,
+                sp.y + 8.0,
+                sp.x + 8.0,
+                sp.y - 8.0,
+                2.5,
+                alpha(r::c_hazard(), 0.9),
+            );
+            hover_note = "Scouts start in the shaded strip on the left.".to_string();
+        }
+    }
+    // the act's options on the field: release slots and the places a source could be put (one set per component)
+    let comps = spec.components();
+    let called = g
+        .last_call()
+        .filter(|_| g.phase == ScoutPhase::Called)
+        .map(|c| spec.decode(c.chosen));
+    let mut any_release = false;
+    for (ci, (act, _)) in comps.iter().enumerate() {
+        let chosen_i = |i: usize| -> bool {
+            match &called {
+                Some(d) => d[ci] == i,
+                None => g.sel.get(ci).copied().flatten() == Some(i),
+            }
+        };
+        match act {
+            ScoutAct::Release { starts, .. } => {
+                any_release = true;
+                for (i, &p) in starts.iter().enumerate() {
+                    let chosen = chosen_i(i);
+                    let c = r::w2s(p);
+                    draw_poly(c.x, c.y, 4, 9.0, 0.0, rgb(14, 16, 22));
+                    draw_poly_lines(
+                        c.x,
+                        c.y,
+                        4,
+                        9.0,
+                        0.0,
+                        if chosen { 3.0 } else { 1.5 },
+                        if chosen { WHITE } else { gray() },
+                    );
+                    text(
+                        &(i + 1).to_string(),
+                        c.x - 22.0,
+                        c.y + 6.0,
+                        16.0,
+                        if chosen { WHITE } else { gray() },
+                    );
+                }
+            }
+            ScoutAct::Cancel { sites, .. } => {
+                for (i, &(kind, p)) in sites.iter().enumerate() {
+                    let chosen = chosen_i(i);
+                    let c = r::w2s(p);
+                    let col = if kind == SourceKind::Repeller {
+                        rgb(240, 150, 90)
+                    } else {
+                        rgb(110, 170, 240)
+                    };
+                    draw_circle_lines(
+                        c.x,
+                        c.y,
+                        if chosen { 11.0 } else { 8.0 },
+                        if chosen { 3.0 } else { 1.5 },
+                        col,
+                    );
+                    // a repeller gets a plus, an attractor a minus
+                    draw_line(c.x - 4.0, c.y, c.x + 4.0, c.y, 1.5, col);
+                    if kind == SourceKind::Repeller {
+                        draw_line(c.x, c.y - 4.0, c.x, c.y + 4.0, 1.5, col);
+                    }
+                    // the sites of one kind sit at the same places as the other kind's: stack the numbers
+                    let dy = if kind == SourceKind::Repeller {
+                        -14.0
+                    } else {
+                        22.0
+                    };
+                    text(&(i + 1).to_string(), c.x - 4.0, c.y + dy, 15.0, col);
+                }
+            }
+            _ => {}
+        }
+    }
+    if !any_release {
+        r::draw_start(spec.rules.start);
+    }
+    // after the call: the main probe's true flight
+    if g.phase == ScoutPhase::Called {
+        let ok = g.last_call().is_some_and(|c| c.correct);
+        r::draw_path(&g.last_path, if ok { good_c() } else { r::c_hazard() }, 3.5);
+        if let Some(e) = g.last_path.last() {
+            r::draw_probe(*e, if ok { good_c() } else { r::c_hazard() });
+        }
+    }
+    r::end_area();
+    text("Shaded strip: where scouts may start. Click it to launch a scout. Yellow arrows: the push a scout felt from the hidden source.", r::AX, r::AY + r::AH + 24.0, 16.0, gray());
+    let cap = match &spec.rules.act {
+        ScoutAct::Exit => "The diamond is the main probe. Its path is shown only after you call.",
+        ScoutAct::Release { .. } => "The numbered diamonds are the places the main probe can be released from. Its path is shown only after you choose.",
+        ScoutAct::Cancel { .. } => "Orange plus: a repeller you could add. Blue minus: an attractor. The probe flies from the diamond after your choice.",
+        ScoutAct::Plan { .. } => "The diamond is where the main probe starts. Each plan is a fixed set of gusts; the flight is shown after you choose.",
+        ScoutAct::Phase { .. } => "The diamond is where the main probe starts. You choose when it is released, in the rhythm of the field; the flight is shown after you choose.",
+        ScoutAct::Dial { .. } => "The diamond is where the main probe starts. You choose the dial of the background; the hidden source ignores it. The flight is shown after you choose.",
+        ScoutAct::Seq(_) => "Make a choice in every group, then commit them together. Numbered diamonds and circles on the field are the options; the flight is shown after you commit.",
+    };
+    text(cap, r::AX, r::AY + r::AH + 46.0, 16.0, gray());
+
+    // input: a click in the strip launches a scout
+    if scouting && inp.pressed && r::in_area(inp.mouse) {
+        let _ = g.place_scout(r::s2w(inp.mouse));
+    }
+
+    // ---- panel
+    let mut y = panel_header(&lvl);
+    let instruction = match &spec.rules.act {
+        ScoutAct::Exit => "Scout the hidden source, then call which exit the probe will leave through.",
+        ScoutAct::Release { .. } => "Scout the hidden source, then choose where to release the probe so that it reaches the target.",
+        ScoutAct::Cancel { .. } => "Scout the hidden source, then choose a source to add that brings the probe to the target.",
+        ScoutAct::Plan { .. } => "Scout the hidden source, then choose the gust plan that brings the probe to the target.",
+        ScoutAct::Phase { .. } => "Scout the hidden source, then choose the launch phase that brings the probe to the target.",
+        ScoutAct::Dial { .. } => "Scout the hidden source, then choose the dial setting that brings the probe to the target.",
+        ScoutAct::Seq(_) => "Scout the hidden source, then make a choice in every group below and commit: all of them together must bring the probe to the target.",
+    };
+    y = wrap(instruction, PX0, y + 8.0, PW, 17.0, gray());
+    y += 12.0;
+    text("Scouts", PX0, y + 14.0, 18.0, WHITE);
+    for i in 0..spec.rules.scouts {
+        let (cx, cy) = (PX0 + 80.0 + i as f32 * 26.0, y + 8.0);
+        if i < g.scouts.len() {
+            draw_circle(cx, cy, 9.0, accent);
+        } else {
+            draw_circle_lines(cx, cy, 9.0, 2.0, gray());
+        }
+    }
+    y += 30.0;
+    text(
+        &format!("Attempt {}", g.attempt + 1),
+        PX0,
+        y + 14.0,
+        18.0,
+        WHITE,
+    );
+    y += 28.0;
+    text("In a row", PX0, y + 14.0, 18.0, WHITE);
+    for i in 0..spec.rules.streak {
+        let (cx, cy) = (PX0 + 90.0 + i as f32 * 26.0, y + 8.0);
+        if i < g.streak {
+            draw_circle(cx, cy, 9.0, good_c());
+        } else {
+            draw_circle_lines(cx, cy, 9.0, 2.0, gray());
+        }
+    }
+    y += 34.0;
+    let in_seq = matches!(spec.rules.act, ScoutAct::Seq(_));
+    let keys = [
+        KeyCode::Key1,
+        KeyCode::Key2,
+        KeyCode::Key3,
+        KeyCode::Key4,
+        KeyCode::Key5,
+        KeyCode::Key6,
+        KeyCode::Key7,
+        KeyCode::Key8,
+        KeyCode::Key9,
+    ];
+    for (ci, (act, nopt)) in comps.iter().enumerate() {
+        let heading = match act {
+            ScoutAct::Exit => "Call the exit",
+            ScoutAct::Release { .. } => "Release from",
+            ScoutAct::Cancel { .. } => "Add a source",
+            ScoutAct::Plan { .. } => "Steer with",
+            ScoutAct::Phase { .. } => "Launch phase",
+            ScoutAct::Dial { .. } => "Dial setting",
+            ScoutAct::Seq(_) => "",
+        };
+        text(heading, PX0, y + 14.0, 18.0, WHITE);
+        y += 24.0;
+        let per_row = if *nopt <= 4 { 2 } else { 4 };
+        let bw = (PW - 6.0 * (per_row as f32 - 1.0)) / per_row as f32;
+        for i in 0..*nopt {
+            let rr = Rect::new(
+                PX0 + (i % per_row) as f32 * (bw + 6.0),
+                y + (i / per_row) as f32 * 40.0,
+                bw,
+                34.0,
+            );
+            let label = match act {
+                ScoutAct::Exit => format!("{} ({})", spec.option_label(i), i + 1),
+                ScoutAct::Cancel { sites, .. } => match sites.get(i) {
+                    Some((k, _)) => format!(
+                        "{} {}",
+                        i + 1,
+                        if *k == SourceKind::Repeller { "+" } else { "-" }
+                    ),
+                    None => "none".to_string(),
+                },
+                ScoutAct::Plan { plans, .. } if i >= plans.len() => "none".to_string(),
+                _ => format!("{}", i + 1),
+            };
+            let picked = in_seq && g.sel.get(ci).copied().flatten() == Some(i);
+            let clicked = ui::button(
+                inp,
+                rr,
+                &label,
+                scouting,
+                if picked { WHITE } else { accent },
+            );
+            let key = if in_seq { None } else { keys.get(i).copied() };
+            if (clicked || (scouting && key.is_some_and(is_key_pressed))) && scouting {
+                g.select(ci, i);
+                if !in_seq {
+                    let _ = g.commit();
+                }
+            }
+            if picked {
+                draw_rectangle_lines(rr.x - 2.0, rr.y - 2.0, rr.w + 4.0, rr.h + 4.0, 3.0, WHITE);
+            }
+        }
+        y += (*nopt).div_ceil(per_row) as f32 * 40.0 + 6.0;
+        // what each option does, as text
+        let detail: Vec<String> = match act {
+            ScoutAct::Plan { plans, dirs, .. } => plans
+                .iter()
+                .enumerate()
+                .map(|(i, plan)| {
+                    let gusts: Vec<String> = plan
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(b, a)| {
+                            a.map(|d| format!("{} at beat {}", dirs.name(d), b + 1))
+                        })
+                        .collect();
+                    format!(
+                        "{}: {}",
+                        i + 1,
+                        if gusts.is_empty() {
+                            "no gust".to_string()
+                        } else {
+                            gusts.join(", ")
+                        }
+                    )
+                })
+                .collect(),
+            ScoutAct::Phase { phases, .. } => vec![phases
+                .iter()
+                .enumerate()
+                .map(|(i, p)| format!("{}: {} s", i + 1, p))
+                .collect::<Vec<_>>()
+                .join(",  ")],
+            ScoutAct::Dial { levels, .. } => vec![levels
+                .iter()
+                .enumerate()
+                .map(|(i, p)| format!("{}: x{}", i + 1, p))
+                .collect::<Vec<_>>()
+                .join(",  ")],
+            _ => vec![],
+        };
+        for line in &detail {
+            y = wrap(line, PX0, y + 4.0, PW, 15.0, gray());
+        }
+        if !detail.is_empty() {
+            y += 6.0;
+        }
+    }
+    if in_seq
+        && scouting
+        && ui::button(
+            inp,
+            Rect::new(PX0, y, PW, 38.0),
+            "Commit all (Enter)",
+            g.ready(),
+            accent,
+        )
+        || (in_seq && scouting && g.ready() && is_key_pressed(KeyCode::Enter))
+    {
+        let _ = g.commit();
+    }
+    if in_seq && scouting {
+        y += 46.0;
+    }
+    if let Some(c) = g.last_call().filter(|_| g.phase == ScoutPhase::Called) {
+        let name = |e: Option<usize>| e.map_or("none".to_string(), |i| spec.option_label(i));
+        let msg = match &spec.rules.act {
+            ScoutAct::Exit => {
+                if c.correct {
+                    format!("Right: it left through {}.", name(c.truth))
+                } else {
+                    format!(
+                        "Wrong: you called {} but it left through {}.",
+                        name(Some(c.chosen)),
+                        if c.truth.is_none() {
+                            "no exit".to_string()
+                        } else {
+                            name(c.truth)
+                        }
+                    )
+                }
+            }
+            _ => {
+                let works = g.spec.winners(c.entry);
+                let list = works
+                    .iter()
+                    .map(|&o| spec.option_label(o))
+                    .collect::<Vec<_>>()
+                    .join(" or ");
+                if c.correct {
+                    format!(
+                        "Right: {} brought the probe to the target.",
+                        spec.option_label(c.chosen)
+                    )
+                } else {
+                    format!(
+                        "Wrong: {} missed the target. This time {} would have worked.",
+                        spec.option_label(c.chosen),
+                        if list.is_empty() {
+                            "nothing".to_string()
+                        } else {
+                            list
+                        }
+                    )
+                }
+            }
+        };
+        y = wrap(
+            &msg,
+            PX0,
+            y + 6.0,
+            PW,
+            17.0,
+            if c.correct {
+                good_c()
+            } else {
+                alpha(r::c_hazard(), 1.0)
+            },
+        );
+        y += 10.0;
+        if !g.won
+            && ui::button(
+                inp,
+                Rect::new(PX0, y, PW, 38.0),
+                "Next attempt (R)",
+                true,
+                accent,
+            )
+        {
+            g.next_attempt();
+        }
+    } else if !hover_note.is_empty() {
+        wrap(
+            &hover_note,
+            PX0,
+            y + 6.0,
+            PW,
+            15.0,
+            alpha(r::c_hazard(), 1.0),
+        );
+    } else if g.scouts.is_empty() {
+        wrap(
+            "Scouts are optional, but the hidden source changes every attempt.",
+            PX0,
+            y + 6.0,
+            PW,
+            15.0,
+            gray(),
+        );
+    }
+    let _ = st;
 }
 
 fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f64) {
@@ -1247,23 +2421,105 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
 
     // ---- draw the world
     r::begin_area();
-    r::draw_field(&lvl.field, 0.0, prefs.grid, prefs.hc);
+    // In a level with a launch phase the arrows show the field at the clock of the beat being played.
+    let ft = if g.spec.period.is_some() {
+        g.clock()
+            + (g.beat() as f64
+                + if g.phase == Phase::Advancing {
+                    st.beat_t.min(1.0)
+                } else {
+                    0.0
+                })
+                * g.spec.beat_time
+    } else {
+        0.0
+    };
+    r::draw_field(&g.spec.field, ft, prefs.grid, prefs.hc);
+    let src_rules = g.spec.source_rules.clone();
+    let steer_accent = chapter_color(Chapter::Steer);
+    let can_edit_sources = src_rules.is_some() && g.phase == Phase::Ready && !replaying;
+    let mut hover_note = String::new();
+    if let Some(sr) = &src_rules {
+        for z in &sr.zones {
+            r::draw_zone(z);
+        }
+    }
     for reg in &lvl.regions {
         r::draw_region(reg, false);
+    }
+    if let Some(sr) = &src_rules {
+        let infl = vfield::modes::influence_radius_of(sr.k, sr.sigma);
+        for src in g.spec.sources.iter() {
+            draw_shape_source(infl, src.pos, src.kind, steer_accent, false, false);
+            if sr.kinds.len() > 1 {
+                let sp = r::w2s(src.pos);
+                text(
+                    src.kind.short(),
+                    sp.x + 14.0,
+                    sp.y - 30.0,
+                    16.0,
+                    alpha(steer_accent, 0.95),
+                );
+            }
+        }
+        if can_edit_sources && r::in_area(inp.mouse) {
+            let aim = r::s2w(inp.mouse);
+            let kind = sr.kinds[st.steer_kind.min(sr.kinds.len() - 1)];
+            // a click replaces the source when the limit is one, so the preview is legal if the site is
+            match g.spec.site_error(aim) {
+                None => draw_shape_source(infl, aim, kind, steer_accent, false, true),
+                Some(e) => {
+                    let sp = r::w2s(aim);
+                    draw_line(
+                        sp.x - 8.0,
+                        sp.y - 8.0,
+                        sp.x + 8.0,
+                        sp.y + 8.0,
+                        2.5,
+                        alpha(r::c_hazard(), 0.9),
+                    );
+                    draw_line(
+                        sp.x - 8.0,
+                        sp.y + 8.0,
+                        sp.x + 8.0,
+                        sp.y - 8.0,
+                        2.5,
+                        alpha(r::c_hazard(), 0.9),
+                    );
+                    hover_note = e.message();
+                }
+            }
+        }
     }
     // ghosts: oldest faintest
     let ng = g.ghosts.len();
     for (i, run) in g.ghosts.iter().enumerate() {
         let a = 0.14 + 0.16 * (i + 1) as f32 / ng.max(1) as f32;
-        draw_run_path(run, alpha(rgb(200, 206, 220), a), 2.0, alpha(rgb(200, 206, 220), a + 0.15), None);
+        draw_run_path(
+            run,
+            alpha(rgb(200, 206, 220), a),
+            2.0,
+            alpha(rgb(200, 206, 220), a + 0.15),
+            None,
+        );
     }
     let accepting = g.accepting_input() && !replaying;
     if let Some(rp) = &st.replay {
-        let n = rp.run.beats.get(rp.beat).map_or(0, |b| (b.points.len() as f64 * rp.t).ceil() as usize);
-        let cur = if rp.beat < rp.run.beats.len() { Some((rp.beat, n)) } else { None };
+        let n = rp
+            .run
+            .beats
+            .get(rp.beat)
+            .map_or(0, |b| (b.points.len() as f64 * rp.t).ceil() as usize);
+        let cur = if rp.beat < rp.run.beats.len() {
+            Some((rp.beat, n))
+        } else {
+            None
+        };
         draw_run_path(&rp.run, r::c_probe(), 3.5, c_gust(), cur);
         let head = match cur {
-            Some((b, n)) if n > 0 => rp.run.beats[b].points[n.min(rp.run.beats[b].points.len()) - 1],
+            Some((b, n)) if n > 0 => {
+                rp.run.beats[b].points[n.min(rp.run.beats[b].points.len()) - 1]
+            }
             Some((b, _)) => rp.run.beats[b].from,
             None => rp.run.beats.last().map_or(rp.run.start, |b| b.to()),
         };
@@ -1271,7 +2527,12 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
         r::draw_start(rp.run.start);
     } else {
         let run = g.run();
-        let cur = if g.phase == Phase::Advancing { g.pending_beat().map(|b| (b.points.len() as f64 * st.beat_t).ceil() as usize) } else { None };
+        let cur = if g.phase == Phase::Advancing {
+            g.pending_beat()
+                .map(|b| (b.points.len() as f64 * st.beat_t).ceil() as usize)
+        } else {
+            None
+        };
         draw_run_path(&run, r::c_probe(), 3.5, c_gust(), None);
         // the beat in flight
         let mut head = g.pos();
@@ -1285,6 +2546,44 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
             }
             head = line.last().copied().unwrap_or(b.from);
         }
+        if let Some(z) = g.spec.start_zone {
+            // the line (or box) the start point may be chosen on
+            let (a, b) = (r::w2s(z.min), r::w2s(z.max));
+            if (z.max.x - z.min.x).abs() < 1e-9 || (z.max.y - z.min.y).abs() < 1e-9 {
+                draw_line(a.x, a.y, b.x, b.y, 4.0, alpha(WHITE, 0.25));
+                for e in [a, b] {
+                    draw_circle(e.x, e.y, 4.0, alpha(WHITE, 0.45));
+                }
+            } else {
+                draw_rectangle_lines(
+                    a.x.min(b.x),
+                    a.y.min(b.y),
+                    (a.x - b.x).abs(),
+                    (a.y - b.y).abs(),
+                    2.0,
+                    alpha(WHITE, 0.4),
+                );
+            }
+            if g.phase == Phase::Ready && !replaying && r::in_area(inp.mouse) {
+                let m = r::s2w(inp.mouse);
+                let c = V2 {
+                    x: m.x.clamp(z.min.x, z.max.x),
+                    y: m.y.clamp(z.min.y, z.max.y),
+                };
+                let sc = r::w2s(c);
+                draw_circle_lines(
+                    sc.x,
+                    sc.y,
+                    11.0,
+                    2.0,
+                    if g.spec.start_legal(c) {
+                        alpha(WHITE, 0.7)
+                    } else {
+                        alpha(rgb(230, 120, 60), 0.9)
+                    },
+                );
+            }
+        }
         r::draw_start(g.spec.start);
         r::draw_probe(head, r::c_probe());
         // ---- decision overlay: field + gust = net velocity, drawn head-to-tail at the probe
@@ -1296,10 +2595,22 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
             let (ps, ft) = (r::w2s(p), r::w2s(p + fv * FIELD_ARROW));
             let nt = r::w2s(p + (fv + gv) * FIELD_ARROW);
             r::draw_arrow(ps, ft, c_field(), 3.0, false);
-            text("field", (ps.x + ft.x) / 2.0 - 14.0, (ps.y + ft.y) / 2.0 + 20.0, 17.0, c_field());
+            text(
+                "field",
+                (ps.x + ft.x) / 2.0 - 14.0,
+                (ps.y + ft.y) / 2.0 + 20.0,
+                17.0,
+                c_field(),
+            );
             if gv != V2::ZERO {
                 r::draw_arrow(ft, nt, c_gust(), 4.0, true);
-                text("gust", (ft.x + nt.x) / 2.0 + 10.0, (ft.y + nt.y) / 2.0 + 4.0, 17.0, c_gust());
+                text(
+                    "gust",
+                    (ft.x + nt.x) / 2.0 + 10.0,
+                    (ft.y + nt.y) / 2.0 + 4.0,
+                    17.0,
+                    c_gust(),
+                );
                 r::draw_arrow(ps, nt, WHITE, 2.0, false);
                 text("net", nt.x - 34.0, nt.y - 8.0, 17.0, WHITE);
             }
@@ -1311,15 +2622,39 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
     let track = Rect::new(r::AX, 748.0, r::AW, 32.0);
     let cw = track.w / nbeats as f32;
     let (done_beats, cur_beat) = match &st.replay {
-        Some(rp) => (rp.run.beats.iter().take(rp.beat).map(|b| b.action).collect::<Vec<_>>(), rp.beat),
-        None => (g.history.iter().map(|b| b.action).collect::<Vec<_>>(), g.history.len()),
+        Some(rp) => (
+            rp.run
+                .beats
+                .iter()
+                .take(rp.beat)
+                .map(|b| b.action)
+                .collect::<Vec<_>>(),
+            rp.beat,
+        ),
+        None => (
+            g.history.iter().map(|b| b.action).collect::<Vec<_>>(),
+            g.history.len(),
+        ),
     };
     for i in 0..nbeats {
         let c = Rect::new(track.x + i as f32 * cw, track.y, cw - 4.0, track.h);
         draw_rectangle(c.x, c.y, c.w, c.h, rgb(30, 34, 46));
         let live = i == cur_beat && (accepting || g.phase == Phase::Advancing || replaying);
-        draw_rectangle_lines(c.x, c.y, c.w, c.h, if live { 3.0 } else { 1.5 }, if live { WHITE } else { rgb(90, 98, 120) });
-        text(&format!("{}", i + 1), c.x + 4.0, c.y + 12.0, 14.0, rgb(130, 138, 160));
+        draw_rectangle_lines(
+            c.x,
+            c.y,
+            c.w,
+            c.h,
+            if live { 3.0 } else { 1.5 },
+            if live { WHITE } else { rgb(90, 98, 120) },
+        );
+        text(
+            &format!("{}", i + 1),
+            c.x + 4.0,
+            c.y + 12.0,
+            14.0,
+            rgb(130, 138, 160),
+        );
         if let Some(a) = done_beats.get(i) {
             let mid = vec2(c.x + c.w / 2.0, c.y + c.h / 2.0 + 3.0);
             match a {
@@ -1333,13 +2668,232 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
         }
     }
 
+    // ---- start phase (levels with a period only): chosen before the first beat, then locked for the run
+    let can_set_clock = g.phase == Phase::Ready && !replaying;
+    if let Some(per) = g.spec.period {
+        if can_set_clock {
+            if is_key_pressed(KeyCode::Comma) {
+                g.set_clock(g.clock() - 0.25);
+            }
+            if is_key_pressed(KeyCode::Period) {
+                g.set_clock(g.clock() + 0.25);
+            }
+        }
+        if let Some(p) = ui::timeline(inp, Rect::new(r::AX, 722.0, r::AW, 24.0), per, ft, &[], "") {
+            if can_set_clock {
+                g.set_clock(p);
+            }
+        }
+    }
+
+    // ---- start point (levels with a start zone only): chosen before the first beat, then locked for the run
+    let can_set_start = g.phase == Phase::Ready && !replaying && g.spec.start_zone.is_some();
+    if can_set_start {
+        if let Some(z) = g.spec.start_zone {
+            let at = |q: V2| V2 {
+                x: q.x.clamp(z.min.x, z.max.x),
+                y: q.y.clamp(z.min.y, z.max.y),
+            };
+            if inp.pressed && r::in_area(inp.mouse) {
+                g.set_start(at(r::s2w(inp.mouse)));
+            }
+            let (dy, dx) = (
+                if is_key_pressed(KeyCode::Period) {
+                    0.25
+                } else if is_key_pressed(KeyCode::Comma) {
+                    -0.25
+                } else {
+                    0.0
+                },
+                0.0,
+            );
+            if dy != 0.0 {
+                let p = g.start();
+                g.set_start(at(V2 {
+                    x: p.x + dx,
+                    y: p.y + dy,
+                }));
+            }
+        }
+    }
+
+    // ---- sources (levels with `sources` only): placed before the first beat, then locked for the run
+    if can_edit_sources {
+        if let Some(sr) = &src_rules {
+            for (i, key) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4]
+                .iter()
+                .enumerate()
+            {
+                if i < sr.kinds.len() && is_key_pressed(*key) {
+                    st.steer_kind = i;
+                }
+            }
+            if is_key_pressed(KeyCode::Tab) {
+                st.steer_kind = (st.steer_kind + 1) % sr.kinds.len();
+            }
+            let kind = sr.kinds[st.steer_kind.min(sr.kinds.len() - 1)];
+            if inp.pressed && r::in_area(inp.mouse) {
+                let p = r::s2w(inp.mouse);
+                // with a limit of one source a click moves it, so a refused site leaves the old source alone
+                if g.spec.site_error(p).is_none() {
+                    if sr.max == 1 && !g.sources().is_empty() {
+                        g.remove_source(0);
+                    }
+                    let _ = g.place_source(kind, p);
+                }
+            }
+            if (is_key_pressed(KeyCode::Delete)
+                || is_key_pressed(KeyCode::Backspace)
+                || (is_mouse_button_pressed(MouseButton::Right) && r::in_area(inp.mouse)))
+                && !g.sources().is_empty()
+            {
+                g.remove_source(g.sources().len() - 1);
+            }
+        }
+    }
+
     // ---- panel
     let mut y = panel_header(&lvl);
-    y = wrap("Each beat: choose a gust or wait, then confirm. The field does the rest.", PX0, y + 8.0, PW, 17.0, gray());
+    if g.spec.source_rules.is_none() {
+        y = wrap(
+            "Each beat: choose a gust or wait, then confirm. The field does the rest.",
+            PX0,
+            y + 8.0,
+            PW,
+            17.0,
+            gray(),
+        );
+    } else {
+        y += 4.0;
+    }
     y += 6.0;
-    let shown_beat = if matches!(g.phase, Phase::Completed(_)) { g.beat() } else { (g.beat() + 1).min(nbeats) };
-    text(&format!("Beat {} of {}", shown_beat, nbeats), PX0, y + 14.0, 20.0, WHITE);
+    let shown_beat = if matches!(g.phase, Phase::Completed(_)) {
+        g.beat()
+    } else {
+        (g.beat() + 1).min(nbeats)
+    };
+    text(
+        &format!("Beat {} of {}", shown_beat, nbeats),
+        PX0,
+        y + 14.0,
+        20.0,
+        WHITE,
+    );
     y += 26.0;
+    if g.spec.period.is_some() {
+        let note = if can_set_clock {
+            "Start phase: click the strip under the play area, or press , and ."
+        } else {
+            "Start phase is locked for this run."
+        };
+        text(
+            &format!("Start phase {:.1} s", g.clock()),
+            PX0,
+            y + 14.0,
+            18.0,
+            WHITE,
+        );
+        y = wrap(note, PX0, y + 34.0, PW, 15.0, gray());
+        y += 4.0;
+    }
+    if let Some(sr) = g.spec.source_rules.clone() {
+        let half = (PW - 6.0) / 2.0;
+        for (i, k) in sr.kinds.iter().enumerate() {
+            let rr = Rect::new(PX0 + i as f32 * (half + 6.0), y + 4.0, half, 28.0);
+            let sel = st.steer_kind.min(sr.kinds.len() - 1) == i;
+            let hot = can_edit_sources && rr.contains(inp.mouse);
+            draw_rectangle(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                if sel {
+                    alpha(steer_accent, 0.30)
+                } else if hot {
+                    rgb(54, 62, 82)
+                } else {
+                    rgb(36, 41, 56)
+                },
+            );
+            draw_rectangle_lines(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                2.0,
+                if sel { steer_accent } else { rgb(70, 74, 86) },
+            );
+            shape_glyph(rr.x + 15.0, rr.y + 14.0, *k, WHITE, 4.0, 9.0);
+            text(
+                &format!("{} {}", i + 1, k.short()),
+                rr.x + 30.0,
+                rr.y + 19.0,
+                16.0,
+                if sel { WHITE } else { gray() },
+            );
+            if hot && inp.pressed {
+                st.steer_kind = i;
+            }
+        }
+        y += 40.0;
+        text("Source", PX0, y + 14.0, 18.0, WHITE);
+        for i in 0..sr.max {
+            let (cx, cy) = (PX0 + 74.0 + i as f32 * 26.0, y + 8.0);
+            if i < g.spec.sources.len() {
+                draw_circle(cx, cy, 9.0, steer_accent);
+            } else {
+                draw_circle_lines(cx, cy, 9.0, 2.0, gray());
+            }
+        }
+        if ui::button(
+            inp,
+            Rect::new(PX0 + PW - 104.0, y - 6.0, 104.0, 26.0),
+            "Remove (Del)",
+            can_edit_sources && !g.spec.sources.is_empty(),
+            rgb(90, 96, 118),
+        ) {
+            g.clear_sources();
+        }
+        y += 26.0;
+        let note = if can_edit_sources {
+            if hover_note.is_empty() {
+                "Click the shaded area to place it."
+            } else {
+                hover_note.as_str()
+            }
+        } else {
+            "The source is locked for this run."
+        };
+        y = wrap(
+            note,
+            PX0,
+            y + 10.0,
+            PW,
+            15.0,
+            if hover_note.is_empty() || !can_edit_sources {
+                gray()
+            } else {
+                alpha(r::c_hazard(), 1.0)
+            },
+        );
+        y += 4.0;
+    }
+    if g.spec.start_zone.is_some() {
+        let note = if can_set_start {
+            "Start point: click the start line, or press , and ."
+        } else {
+            "Start point is locked for this run."
+        };
+        text(
+            &format!("Start height {:.2}", g.start().y),
+            PX0,
+            y + 14.0,
+            18.0,
+            WHITE,
+        );
+        y = wrap(note, PX0, y + 34.0, PW, 15.0, gray());
+        y += 4.0;
+    }
     text("Gusts:", PX0, y + 14.0, 18.0, WHITE);
     for i in 0..g.spec.budget {
         let (cx, cy) = (PX0 + 62.0 + i as f32 * 24.0, y + 8.0);
@@ -1349,7 +2903,13 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
             draw_circle_lines(cx, cy, 8.0, 2.0, gray());
         }
     }
-    text(&format!("{} left", g.gusts_left()), PX0 + 70.0 + g.spec.budget as f32 * 24.0, y + 14.0, 17.0, gray());
+    text(
+        &format!("{} left", g.gusts_left()),
+        PX0 + 70.0 + g.spec.budget as f32 * 24.0,
+        y + 14.0,
+        17.0,
+        gray(),
+    );
     y += 30.0;
     let sel = st.sel;
     let fv = g.field_velocity();
@@ -1360,10 +2920,34 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
         None => "none yet".to_string(),
     };
     let live_c = |c: Color| if accepting { c } else { rgb(100, 106, 122) };
-    text(&format!("Field  ({:+.1}, {:+.1})", fv.x, fv.y), PX0, y + 12.0, 16.0, live_c(c_field()));
-    text(&format!("Gust   ({:+.1}, {:+.1})", gv.x, gv.y), PX0, y + 30.0, 16.0, live_c(c_gust()));
-    text(&format!("Net    ({:+.1}, {:+.1})", fv.x + gv.x, fv.y + gv.y), PX0, y + 48.0, 16.0, live_c(WHITE));
-    text(&format!("Selected: {}", sel_name), PX0, y + 70.0, 17.0, WHITE);
+    text(
+        &format!("Field  ({:+.1}, {:+.1})", fv.x, fv.y),
+        PX0,
+        y + 12.0,
+        16.0,
+        live_c(c_field()),
+    );
+    text(
+        &format!("Gust   ({:+.1}, {:+.1})", gv.x, gv.y),
+        PX0,
+        y + 30.0,
+        16.0,
+        live_c(c_gust()),
+    );
+    text(
+        &format!("Net    ({:+.1}, {:+.1})", fv.x + gv.x, fv.y + gv.y),
+        PX0,
+        y + 48.0,
+        16.0,
+        live_c(WHITE),
+    );
+    text(
+        &format!("Selected: {}", sel_name),
+        PX0,
+        y + 70.0,
+        17.0,
+        WHITE,
+    );
     y += 82.0;
 
     // compass 3x3 (center = wait). Keys: Q W E / A S D / Z X C, arrows for the cardinals.
@@ -1375,18 +2959,38 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
             None => Some(Action::Wait),
             Some(e) => dir_for(dirs, *e).map(Action::Gust),
         };
-        let usable = can_act && action.is_some() && (matches!(action, Some(Action::Wait)) || g.gusts_left() > 0);
+        let usable = can_act
+            && action.is_some()
+            && (matches!(action, Some(Action::Wait)) || g.gusts_left() > 0);
         let is_sel = sel == action && action.is_some();
-        let clicked = ui::button(inp, rect, label, usable, if is_sel { c_gust() } else { rgb(120, 130, 160) });
+        let clicked = ui::button(
+            inp,
+            rect,
+            label,
+            usable,
+            if is_sel { c_gust() } else { rgb(120, 130, 160) },
+        );
         if is_sel {
-            draw_rectangle_lines(rect.x - 3.0, rect.y - 3.0, rect.w + 6.0, rect.h + 6.0, 3.0, c_gust());
+            draw_rectangle_lines(
+                rect.x - 3.0,
+                rect.y - 3.0,
+                rect.w + 6.0,
+                rect.h + 6.0,
+                3.0,
+                c_gust(),
+            );
         }
         if usable && (clicked || is_key_pressed(*key)) {
             st.sel = action;
         }
     }
     if can_act {
-        for (key, e) in [(KeyCode::Up, 2usize), (KeyCode::Down, 6), (KeyCode::Left, 4), (KeyCode::Right, 0)] {
+        for (key, e) in [
+            (KeyCode::Up, 2usize),
+            (KeyCode::Down, 6),
+            (KeyCode::Left, 4),
+            (KeyCode::Right, 0),
+        ] {
             if is_key_pressed(key) {
                 if let Some(d) = dir_for(dirs, e) {
                     if g.gusts_left() > 0 {
@@ -1401,7 +3005,13 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
     }
     y += 3.0 * 38.0 + 6.0;
     let ready = can_act && st.sel.is_some();
-    let go = ui::button(inp, Rect::new(PX0, y, PW, 42.0), "Confirm (Space)", ready, chapter_color(Chapter::Steer));
+    let go = ui::button(
+        inp,
+        Rect::new(PX0, y, PW, 42.0),
+        "Confirm (Space)",
+        ready,
+        chapter_color(Chapter::Steer),
+    );
     if ready && (go || space()) {
         if let Some(a) = st.sel {
             if g.choose(a).is_ok() {
@@ -1415,7 +3025,13 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
     if replaying {
         text("Replay running (V: stop)", PX0, y + 62.0, 16.0, c_gust());
     } else if !g.ghosts.is_empty() {
-        text(&format!("Faint paths: {} earlier run(s)", g.ghosts.len()), PX0, y + 62.0, 16.0, gray());
+        text(
+            &format!("Faint paths: {} earlier run(s)", g.ghosts.len()),
+            PX0,
+            y + 62.0,
+            16.0,
+            gray(),
+        );
     }
 }
 
@@ -1429,7 +3045,12 @@ fn survey_color(i: usize, free: bool) -> Color {
 }
 
 fn survey_items(g: &SurveyGame) -> Vec<(Trajectory, Color)> {
-    g.round().scouts.iter().enumerate().map(|(i, sc)| (sc.traj.clone(), survey_color(i, sc.free))).collect()
+    g.round()
+        .scouts
+        .iter()
+        .enumerate()
+        .map(|(i, sc)| (sc.traj.clone(), survey_color(i, sc.free)))
+        .collect()
 }
 
 /// Use the active tool at `p`: fly a scout there, or move the estimate marker.
@@ -1439,7 +3060,10 @@ fn survey_place(g: &mut SurveyGame, st: &mut St, p: V2) {
             Ok(()) => {
                 st.hints_hidden = true;
                 let i = g.round().scouts.len() - 1;
-                st.anim = Some(Anim::new(vec![(g.round().scouts[i].traj.clone(), survey_color(i, false))]));
+                st.anim = Some(Anim::new(vec![(
+                    g.round().scouts[i].traj.clone(),
+                    survey_color(i, false),
+                )]));
                 st.msg.clear();
                 st.good = None;
                 if g.scouts_left() == 0 {
@@ -1516,13 +3140,28 @@ fn survey_commit(g: &mut SurveyGame, st: &mut St) {
             } else if g.spec.typed() {
                 let what = g.round().revealed_kind().map_or("source", |k| k.short());
                 let (progress, next) = match g.spec.goal {
-                    SurveyGoal::EachKind => (format!(" {} of {} kinds found.", g.found.iter().filter(|f| **f).count(), g.families_needed().len()), !g.won),
-                    SurveyGoal::Finds(n) => (format!(" {} of {} found.", g.finds.min(n), n), !g.won),
+                    SurveyGoal::EachKind => (
+                        format!(
+                            " {} of {} kinds found.",
+                            g.found.iter().filter(|f| **f).count(),
+                            g.families_needed().len()
+                        ),
+                        !g.won,
+                    ),
+                    SurveyGoal::Finds(n) => {
+                        (format!(" {} of {} found.", g.finds.min(n), n), !g.won)
+                    }
                 };
                 let next = if next { " Press R for the next." } else { "" };
-                st.msg = format!("Found it: {:.2} away (within {:.2}). It was a {}.{}{}", v.distance, tol, what, progress, next);
+                st.msg = format!(
+                    "Found it: {:.2} away (within {:.2}). It was a {}.{}{}",
+                    v.distance, tol, what, progress, next
+                );
             } else {
-                st.msg = format!("Found it: your marker is {:.2} from the source (within {:.2}).", v.distance, tol);
+                st.msg = format!(
+                    "Found it: your marker is {:.2} from the source (within {:.2}).",
+                    v.distance, tol
+                );
             }
         }
         Ok(v) => {
@@ -1530,25 +3169,43 @@ fn survey_commit(g: &mut SurveyGame, st: &mut St) {
             let said = g.round().marker_kind;
             let name = |k: Option<SourceKind>| k.map_or("source", |k| k.short());
             if g.spec.paired() {
-                let mut m = format!("Missed: worst marker {:.2} from its source (needs {:.2}).", v.distance, tol);
+                let mut m = format!(
+                    "Missed: worst marker {:.2} from its source (needs {:.2}).",
+                    v.distance, tol
+                );
                 if g.round().marker_between(tol) {
-                    m.push_str(" A marker sat between the two sources: from far away, two look like one.");
+                    m.push_str(
+                        " A marker sat between the two sources: from far away, two look like one.",
+                    );
                 }
                 m.push_str(" Retry (R).");
                 st.msg = m;
                 st.good = Some(false);
                 return;
             }
-            let swirl_missed = truth.map_or(false, |k| k.is_swirl()) && !said.is_swirl();
+            let swirl_missed = truth.is_some_and(|k| k.is_swirl()) && !said.is_swirl();
             st.msg = if swirl_missed {
                 // the one thing worth saying: why the lines never crossed
                 "Missed: it was a swirl. A swirl pushes sideways, so lines along its arrows never cross. Press P: lines at right angles cross at its centre.".to_string()
             } else if !v.kind_ok && v.distance <= tol {
-                format!("Right place, wrong kind: you said {}, it was {}. Retry (R).", said.short(), name(truth))
+                format!(
+                    "Right place, wrong kind: you said {}, it was {}. Retry (R).",
+                    said.short(),
+                    name(truth)
+                )
             } else if !v.kind_ok {
-                format!("Missed: {:.2} away (needs {:.2}), and it was {}, not {}. Retry (R).", v.distance, tol, name(truth), said.short())
+                format!(
+                    "Missed: {:.2} away (needs {:.2}), and it was {}, not {}. Retry (R).",
+                    v.distance,
+                    tol,
+                    name(truth),
+                    said.short()
+                )
             } else {
-                format!("Missed: {:.2} away (needs {:.2}). Retry (R) hides it somewhere else.", v.distance, tol)
+                format!(
+                    "Missed: {:.2} away (needs {:.2}). Retry (R) hides it somewhere else.",
+                    v.distance, tol
+                )
             };
             st.good = Some(false);
         }
@@ -1598,7 +3255,13 @@ fn survey_test(g: &mut SurveyGame, st: &mut St) {
 
 /// Would a scout released at `p` be accepted? (Mirrors `SurveyGame::place_scout`'s checks, without spending.)
 fn survey_scout_ok(g: &SurveyGame, p: V2) -> bool {
-    g.scouts_left() > 0 && g.spec.zone.contains(p) && !g.round().scouts.iter().any(|s| s.start.dist(p) < MIN_SCOUT_SEPARATION)
+    g.scouts_left() > 0
+        && g.spec.zone.contains(p)
+        && !g
+            .round()
+            .scouts
+            .iter()
+            .any(|s| s.start.dist(p) < MIN_SCOUT_SEPARATION)
 }
 
 /// A faint ghost of what the active tool would place at `p`.
@@ -1610,7 +3273,19 @@ fn survey_hover(g: &SurveyGame, tool: Tool, p: V2, accent: Color, band: &[(V2, f
                 // amber when it would start on ground the band already rules out (it may still fly out of it)
                 let inside = band.iter().any(|(c, rad)| c.dist(p) < *rad);
                 draw_poly(s.x, s.y, 4, 13.0, 0.0, alpha(rgb(14, 16, 22), 0.6));
-                draw_poly_lines(s.x, s.y, 4, 13.0, 0.0, 2.0, if inside { alpha(rgb(240, 190, 70), 0.8) } else { alpha(WHITE, 0.55) });
+                draw_poly_lines(
+                    s.x,
+                    s.y,
+                    4,
+                    13.0,
+                    0.0,
+                    2.0,
+                    if inside {
+                        alpha(rgb(240, 190, 70), 0.8)
+                    } else {
+                        alpha(WHITE, 0.55)
+                    },
+                );
             } else {
                 let c = alpha(bad_c(), 0.8);
                 draw_line(s.x - 8.0, s.y - 8.0, s.x + 8.0, s.y + 8.0, 2.5, c);
@@ -1620,7 +3295,13 @@ fn survey_hover(g: &SurveyGame, tool: Tool, p: V2, accent: Color, band: &[(V2, f
         Tool::Marker => {
             let p = g.spec.zone.clamp(p);
             let s = r::w2s(p);
-            draw_circle_lines(s.x, s.y, g.spec.tol as f32 * r::PX, 1.5, alpha(accent, 0.35));
+            draw_circle_lines(
+                s.x,
+                s.y,
+                g.spec.tol as f32 * r::PX,
+                1.5,
+                alpha(accent, 0.35),
+            );
             draw_poly_lines(s.x, s.y, 4, 12.0, 0.0, 2.0, alpha(accent, 0.55));
         }
     }
@@ -1667,7 +3348,10 @@ fn survey_kind_key(x: f32, y: f32) {
             let (from, to) = match which {
                 0 => (vec2(cx, cy) + dir * 6.0, vec2(cx, cy) + dir * 14.0),
                 1 => (vec2(cx, cy) + dir * 14.0, vec2(cx, cy) + dir * 6.0),
-                _ => (vec2(cx, cy) + dir * 10.0 - side * 4.5, vec2(cx, cy) + dir * 10.0 + side * 5.5),
+                _ => (
+                    vec2(cx, cy) + dir * 10.0 - side * 4.5,
+                    vec2(cx, cy) + dir * 10.0 + side * 5.5,
+                ),
             };
             r::draw_arrow(from, to, alpha(WHITE, 0.85), 1.5, false);
         }
@@ -1704,12 +3388,26 @@ fn survey_push(spec: &SurveySpec, traj: &Trajectory, col: Color, perps: bool) {
         for (p, push) in spec.push_samples_at(traj, 2.0 * PUSH_EVERY, PUSH_MIN) {
             let d = if perps { push.perp() } else { push } * (1.0 / push.len());
             let (a, b) = (r::w2s(p - d * 9.0), r::w2s(p + d * 9.0));
-            draw_line(a.x, a.y, b.x, b.y, 1.5, alpha(col, (push.len() as f32 * 0.4).clamp(0.08, 0.32)));
+            draw_line(
+                a.x,
+                a.y,
+                b.x,
+                b.y,
+                1.5,
+                alpha(col, (push.len() as f32 * 0.4).clamp(0.08, 0.32)),
+            );
         }
     } else if spec.rays {
         for (p, dir) in spec.push_rays(traj) {
             let (a, b) = (r::w2s(p), r::w2s(p + dir * spec.ray_length()));
-            draw_line(a.x, a.y, b.x, b.y, 1.5, alpha(col, if spec.paired() { 0.45 } else { 0.2 }));
+            draw_line(
+                a.x,
+                a.y,
+                b.x,
+                b.y,
+                1.5,
+                alpha(col, if spec.paired() { 0.45 } else { 0.2 }),
+            );
         }
     }
     for (p, push) in spec.push_samples(traj) {
@@ -1754,7 +3452,17 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
             }
             r::draw_start(sc.start);
             let sp = r::w2s(sc.start);
-            text(&if sc.free { "F".to_string() } else { format!("{}", i) }, sp.x - 26.0, sp.y + 6.0, 22.0, col);
+            text(
+                &if sc.free {
+                    "F".to_string()
+                } else {
+                    format!("{}", i)
+                },
+                sp.x - 26.0,
+                sp.y + 6.0,
+                22.0,
+                col,
+            );
         }
         if let Some(a) = &st.anim {
             for (t, c) in &a.items {
@@ -1785,9 +3493,21 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
                 r::draw_estimate(m, g.spec.tol, accent);
                 let s = r::w2s(m);
                 if g.spec.paired() {
-                    text(if slot == 0 { "A" } else { "B" }, s.x + 14.0, s.y - 12.0, 18.0, alpha(accent, 0.95));
+                    text(
+                        if slot == 0 { "A" } else { "B" },
+                        s.x + 14.0,
+                        s.y - 12.0,
+                        18.0,
+                        alpha(accent, 0.95),
+                    );
                 } else if g.spec.typed() {
-                    text(rd.marker_kind.short(), s.x + 14.0, s.y - 12.0, 16.0, alpha(accent, 0.9));
+                    text(
+                        rd.marker_kind.short(),
+                        s.x + 14.0,
+                        s.y - 12.0,
+                        16.0,
+                        alpha(accent, 0.9),
+                    );
                 }
             }
         }
@@ -1822,7 +3542,11 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     // (and whether the click would be refused) before it is spent. Only a level with the planning aid on
     // also shows a path (the charted one, with nothing hidden: see `survey_preview`).
     if !flying && !g.finished() && st.tool == Tool::Scout {
-        let aim = if r::in_area(inp.mouse) { r::s2w(inp.mouse) } else { st.cur };
+        let aim = if r::in_area(inp.mouse) {
+            r::s2w(inp.mouse)
+        } else {
+            st.cur
+        };
         survey_preview(g, aim);
     }
     if !flying && !g.finished() && r::in_area(inp.mouse) {
@@ -1883,9 +3607,17 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
             st.tool = Tool::Marker;
         }
         if is_key_pressed(KeyCode::Tab) {
-            st.tool = if st.tool == Tool::Scout { Tool::Marker } else { Tool::Scout };
+            st.tool = if st.tool == Tool::Scout {
+                Tool::Marker
+            } else {
+                Tool::Scout
+            };
         }
-        let sp = if is_key_down(KeyCode::LeftShift) { 0.8 } else { 3.5 } * get_frame_time() as f64;
+        let sp = if is_key_down(KeyCode::LeftShift) {
+            0.8
+        } else {
+            3.5
+        } * get_frame_time() as f64;
         let mut d = V2::ZERO;
         if is_key_down(KeyCode::Left) {
             d.x -= sp;
@@ -1900,7 +3632,10 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
             d.y -= sp;
         }
         if d != V2::ZERO {
-            st.cur = g.spec.zone.clamp(V2 { x: st.cur.x + d.x, y: st.cur.y + d.y });
+            st.cur = g.spec.zone.clamp(V2 {
+                x: st.cur.x + d.x,
+                y: st.cur.y + d.y,
+            });
         }
         if inp.pressed && r::in_area(inp.mouse) {
             survey_place(g, st, r::s2w(inp.mouse));
@@ -1924,10 +3659,18 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     // panel
     let mut y = panel_header(&lvl);
     let attempt = match g.spec.goal {
-        SurveyGoal::Finds(n) if n > 1 => format!("Attempt {} ({}/{})", g.attempts(), g.finds.min(n), n),
+        SurveyGoal::Finds(n) if n > 1 => {
+            format!("Attempt {} ({}/{})", g.attempts(), g.finds.min(n), n)
+        }
         _ => format!("Attempt {}", g.attempts()),
     };
-    text(&attempt, PX0 + PW - measure_text(&attempt, None, 18, 1.0).width, 108.0, 18.0, gray());
+    text(
+        &attempt,
+        PX0 + PW - measure_text(&attempt, None, 18, 1.0).width,
+        108.0,
+        18.0,
+        gray(),
+    );
     if g.spec.goal == SurveyGoal::EachKind {
         // which kinds have been found: the level is complete when all three are
         let cw = (PW - 12.0) / 3.0;
@@ -1937,10 +3680,23 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
             if found {
                 draw_rectangle(x, y + 4.0, cw, 24.0, alpha(accent, 0.35));
             }
-            draw_rectangle_lines(x, y + 4.0, cw, 24.0, 1.5, if found { accent } else { gray() });
+            draw_rectangle_lines(
+                x,
+                y + 4.0,
+                cw,
+                24.0,
+                1.5,
+                if found { accent } else { gray() },
+            );
             let name = SourceKind::FAMILY_NAMES[f];
             let w = measure_text(name, None, 16, 1.0).width;
-            text(name, x + (cw - w) / 2.0, y + 21.0, 16.0, if found { WHITE } else { gray() });
+            text(
+                name,
+                x + (cw - w) / 2.0,
+                y + 21.0,
+                16.0,
+                if found { WHITE } else { gray() },
+            );
         }
         y += 34.0;
     }
@@ -1970,8 +3726,28 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     y += 34.0;
     let live = !flying && !g.finished();
     let half = (PW - 8.0) / 2.0;
-    let sc = ui::button(inp, Rect::new(PX0, y, half, 36.0), "Scout (S)", live, if st.tool == Tool::Scout { accent } else { rgb(90, 96, 118) });
-    let mk = ui::button(inp, Rect::new(PX0 + half + 8.0, y, half, 36.0), "Marker (M)", live, if st.tool == Tool::Marker { accent } else { rgb(90, 96, 118) });
+    let sc = ui::button(
+        inp,
+        Rect::new(PX0, y, half, 36.0),
+        "Scout (S)",
+        live,
+        if st.tool == Tool::Scout {
+            accent
+        } else {
+            rgb(90, 96, 118)
+        },
+    );
+    let mk = ui::button(
+        inp,
+        Rect::new(PX0 + half + 8.0, y, half, 36.0),
+        "Marker (M)",
+        live,
+        if st.tool == Tool::Marker {
+            accent
+        } else {
+            rgb(90, 96, 118)
+        },
+    );
     if sc {
         st.tool = Tool::Scout;
     }
@@ -1980,7 +3756,15 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     }
     y += 46.0;
     y = wrap(
-        if st.tool == Tool::Scout { "Release scouts near where you suspect the source: a trail only bends close to it." } else { if g.spec.paired() { "Click to place marker A, again for B. Then a click moves the nearer one." } else { "Click to place the estimate; click again to move it." } },
+        if st.tool == Tool::Scout {
+            "Release scouts near where you suspect the source: a trail only bends close to it."
+        } else {
+            if g.spec.paired() {
+                "Click to place marker A, again for B. Then a click moves the nearer one."
+            } else {
+                "Click to place the estimate; click again to move it."
+            }
+        },
         PX0,
         y,
         PW,
@@ -1989,18 +3773,39 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     );
     y += 16.0;
     if g.spec.paired() {
-        for (slot, marker) in [g.round().marker, g.round().marker2].into_iter().enumerate() {
+        for (slot, marker) in [g.round().marker, g.round().marker2]
+            .into_iter()
+            .enumerate()
+        {
             let name = if slot == 0 { "A" } else { "B" };
             let at = y + 14.0 + slot as f32 * 22.0;
             match marker {
-                Some(m) => text(&format!("Marker {}: ({:.1}, {:.1})", name, m.x, m.y), PX0, at, 19.0, WHITE),
-                None => text(&format!("Marker {}: not placed", name), PX0, at, 19.0, gray()),
+                Some(m) => text(
+                    &format!("Marker {}: ({:.1}, {:.1})", name, m.x, m.y),
+                    PX0,
+                    at,
+                    19.0,
+                    WHITE,
+                ),
+                None => text(
+                    &format!("Marker {}: not placed", name),
+                    PX0,
+                    at,
+                    19.0,
+                    gray(),
+                ),
             }
         }
         y += 22.0;
     } else {
         match g.round().marker {
-            Some(m) => text(&format!("Marker: ({:.1}, {:.1})", m.x, m.y), PX0, y + 14.0, 19.0, WHITE),
+            Some(m) => text(
+                &format!("Marker: ({:.1}, {:.1})", m.x, m.y),
+                PX0,
+                y + 14.0,
+                19.0,
+                WHITE,
+            ),
             None => text("Marker: not placed", PX0, y + 14.0, 19.0, gray()),
         }
     }
@@ -2011,10 +3816,24 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         // room for the kind button: the tolerance is given in the result instead
         y + 46.0
     } else {
-        wrap(&format!("Counts as found within {:.2} of the source.", g.spec.tol), PX0, y + 40.0, PW, 17.0, gray())
+        wrap(
+            &format!("Counts as found within {:.2} of the source.", g.spec.tol),
+            PX0,
+            y + 40.0,
+            PW,
+            17.0,
+            gray(),
+        )
     };
-    let ready = live && g.round().marker.is_some() && (!g.spec.paired() || g.round().marker2.is_some());
-    if ui::button(inp, Rect::new(PX0, y + 8.0, PW, 42.0), "Commit position (C)", ready, accent) {
+    let ready =
+        live && g.round().marker.is_some() && (!g.spec.paired() || g.round().marker2.is_some());
+    if ui::button(
+        inp,
+        Rect::new(PX0, y + 8.0, PW, 42.0),
+        "Commit position (C)",
+        ready,
+        accent,
+    ) {
         survey_commit(g, st);
     }
     y += 62.0;
@@ -2025,8 +3844,17 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         }
         y += 44.0;
         if g.spec.rays {
-            let label = format!("Guide lines (P): {}", if st.perps { "across" } else { "along" });
-            if ui::button(inp, Rect::new(PX0, y, PW, 34.0), &label, true, rgb(90, 96, 118)) {
+            let label = format!(
+                "Guide lines (P): {}",
+                if st.perps { "across" } else { "along" }
+            );
+            if ui::button(
+                inp,
+                Rect::new(PX0, y, PW, 34.0),
+                &label,
+                true,
+                rgb(90, 96, 118),
+            ) {
                 st.perps = !st.perps;
             }
             y += 44.0;
@@ -2034,17 +3862,51 @@ fn survey_frame(g: &mut SurveyGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     }
     if live {
         let label = format!("Test estimate (T): {} left", g.tests_left());
-        let testable = g.round().marker.is_some() && (!g.spec.paired() || g.round().marker2.is_some());
-        if ui::button(inp, Rect::new(PX0, y, PW, 34.0), &label, testable, rgb(90, 96, 118)) {
+        let testable =
+            g.round().marker.is_some() && (!g.spec.paired() || g.round().marker2.is_some());
+        if ui::button(
+            inp,
+            Rect::new(PX0, y, PW, 34.0),
+            &label,
+            testable,
+            rgb(90, 96, 118),
+        ) {
             survey_test(g, st);
         }
         y += 44.0;
     }
     if let (Some(a), Some(b)) = (g.round().revealed_source(), g.round().revealed_partner()) {
-        wrap(&format!("The sources were at ({:.1}, {:.1}) and ({:.1}, {:.1}). Press R for the next pair.", a.x, a.y, b.x, b.y), PX0, y, PW, 17.0, WHITE);
+        wrap(
+            &format!(
+                "The sources were at ({:.1}, {:.1}) and ({:.1}, {:.1}). Press R for the next pair.",
+                a.x, a.y, b.x, b.y
+            ),
+            PX0,
+            y,
+            PW,
+            17.0,
+            WHITE,
+        );
     } else if let Some(src) = g.round().revealed_source() {
-        let what = if g.spec.typed() { format!("The source was a {} at", g.round().revealed_kind().map_or("source", |k| k.name())) } else { "The source was at".to_string() };
-        wrap(&format!("{} ({:.1}, {:.1}). Press R for a new hidden position.", what, src.x, src.y), PX0, y, PW, 17.0, WHITE);
+        let what = if g.spec.typed() {
+            format!(
+                "The source was a {} at",
+                g.round().revealed_kind().map_or("source", |k| k.name())
+            )
+        } else {
+            "The source was at".to_string()
+        };
+        wrap(
+            &format!(
+                "{} ({:.1}, {:.1}). Press R for a new hidden position.",
+                what, src.x, src.y
+            ),
+            PX0,
+            y,
+            PW,
+            17.0,
+            WHITE,
+        );
     }
 }
 
@@ -2090,13 +3952,30 @@ fn shape_glyph(cx: f32, cy: f32, kind: SourceKind, col: Color, inner: f32, outer
 }
 
 /// A placed (or about-to-be-placed) source: its influence ring, a disc and the kind's arrows.
-fn draw_shape_source(spec: &ShapeSpec, p: V2, kind: SourceKind, col: Color, selected: bool, ghost: bool) {
+fn draw_shape_source(
+    influence: f64,
+    p: V2,
+    kind: SourceKind,
+    col: Color,
+    selected: bool,
+    ghost: bool,
+) {
     let s = r::w2s(p);
     let a = if ghost { 0.45 } else { 1.0 };
-    let rad = spec.influence_radius() as f32 * r::PX;
+    let rad = influence as f32 * r::PX;
     for k in (0..48).step_by(2) {
-        let (a0, a1) = (k as f32 / 48.0 * std::f32::consts::TAU, (k + 1) as f32 / 48.0 * std::f32::consts::TAU);
-        draw_line(s.x + rad * a0.cos(), s.y + rad * a0.sin(), s.x + rad * a1.cos(), s.y + rad * a1.sin(), 1.5, alpha(col, 0.45 * a));
+        let (a0, a1) = (
+            k as f32 / 48.0 * std::f32::consts::TAU,
+            (k + 1) as f32 / 48.0 * std::f32::consts::TAU,
+        );
+        draw_line(
+            s.x + rad * a0.cos(),
+            s.y + rad * a0.sin(),
+            s.x + rad * a1.cos(),
+            s.y + rad * a1.sin(),
+            1.5,
+            alpha(col, 0.45 * a),
+        );
     }
     draw_circle(s.x, s.y, 9.0, alpha(BLACK, a));
     draw_circle(s.x, s.y, 7.0, alpha(col, a));
@@ -2118,7 +3997,10 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     // ---- input (before drawing, so this frame already shows the edit)
     let mut edited = false;
     if !flying {
-        for (i, key) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4].iter().enumerate() {
+        for (i, key) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3, KeyCode::Key4]
+            .iter()
+            .enumerate()
+        {
             if is_key_pressed(*key) {
                 let _ = g.select(i);
             }
@@ -2127,7 +4009,11 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
             g.cycle_kind();
         }
         // keyboard cursor, as in Survey
-        let step = if is_key_down(KeyCode::LeftShift) { 0.25 } else { 1.2 } * get_frame_time() as f64;
+        let step = if is_key_down(KeyCode::LeftShift) {
+            0.25
+        } else {
+            1.2
+        } * get_frame_time() as f64;
         let mut d = V2::ZERO;
         if is_key_down(KeyCode::Left) {
             d.x -= step;
@@ -2164,7 +4050,9 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
                     st.shape_sel = Some(i);
                     edited = true;
                 }
-                Err(vfield::modes::ShapePlaceError::Full) if st.shape_sel.is_some() && g.source_at(p, 0.35).is_none() && !inp.pressed => {
+                Err(vfield::modes::ShapePlaceError::Full)
+                    if st.shape_sel.is_some() && g.source_at(p, 0.35).is_none() && !inp.pressed =>
+                {
                     let i = st.shape_sel.unwrap().min(g.sources.len() - 1);
                     match g.move_source(i, p) {
                         Ok(()) => edited = true,
@@ -2189,7 +4077,9 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
                 st.drag = None;
             }
         }
-        let remove = is_key_pressed(KeyCode::Delete) || is_key_pressed(KeyCode::Backspace) || is_key_pressed(KeyCode::X);
+        let remove = is_key_pressed(KeyCode::Delete)
+            || is_key_pressed(KeyCode::Backspace)
+            || is_key_pressed(KeyCode::X);
         if remove {
             if let Some(i) = st.shape_sel.filter(|i| *i < g.sources.len()) {
                 g.remove(i);
@@ -2221,7 +4111,13 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     // The arrows are the *combined* field, so a placed or dragged source visibly reshapes them. No path is drawn
     // for the player before a launch: only what has already been flown is shown.
     let flat = g.field();
-    r::draw_field(&flat, 0.0, prefs.grid, prefs.hc);
+    // In a level with a launch phase the arrows show the field at that clock (and move on as the probe flies).
+    let ft = match (spec.period, &st.anim, flying) {
+        (Some(_), Some(a), true) => g.phase + a.time.min(a.dur()),
+        (Some(_), _, _) => g.phase,
+        (None, _, _) => 0.0,
+    };
+    r::draw_field(&flat, ft, prefs.grid, prefs.hc);
     for z in &spec.zones {
         let b = z.bbox();
         if b.width() * b.height() < 0.4 * lvl.bounds.width() * lvl.bounds.height() {
@@ -2234,16 +4130,33 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         r::draw_region(reg, false);
     }
     r::draw_start(spec.start);
-    let keep = if st.anim.is_some() { g.attempts.len().saturating_sub(1) } else { g.attempts.len() };
+    let keep = if st.anim.is_some() {
+        g.attempts.len().saturating_sub(1)
+    } else {
+        g.attempts.len()
+    };
     for a in g.attempts[..keep].iter().rev().take(3) {
         r::draw_path(&a.traj.points, alpha(r::c_probe(), 0.22), 2.0);
     }
     draw_anim(st);
     for (i, src) in g.sources.iter().enumerate() {
-        draw_shape_source(&spec, src.pos, src.kind, accent, st.shape_sel == Some(i), false);
+        draw_shape_source(
+            spec.influence_radius(),
+            src.pos,
+            src.kind,
+            accent,
+            st.shape_sel == Some(i),
+            false,
+        );
         if multi_kind {
             let sp = r::w2s(src.pos);
-            text(src.kind.short(), sp.x + 14.0, sp.y - 30.0, 16.0, alpha(accent, 0.95));
+            text(
+                src.kind.short(),
+                sp.x + 14.0,
+                sp.y - 30.0,
+                16.0,
+                alpha(accent, 0.95),
+            );
         }
     }
     // what a click would do here
@@ -2253,11 +4166,27 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         let on_source = g.source_at(aim, 0.35).is_some();
         if !on_source && st.drag.is_none() {
             match g.can_place(aim) {
-                Ok(()) => draw_shape_source(&spec, aim, g.kind(), accent, false, true),
+                Ok(()) => {
+                    draw_shape_source(spec.influence_radius(), aim, g.kind(), accent, false, true)
+                }
                 Err(e) => {
                     let s = r::w2s(aim);
-                    draw_line(s.x - 8.0, s.y - 8.0, s.x + 8.0, s.y + 8.0, 2.5, alpha(r::c_hazard(), 0.9));
-                    draw_line(s.x - 8.0, s.y + 8.0, s.x + 8.0, s.y - 8.0, 2.5, alpha(r::c_hazard(), 0.9));
+                    draw_line(
+                        s.x - 8.0,
+                        s.y - 8.0,
+                        s.x + 8.0,
+                        s.y + 8.0,
+                        2.5,
+                        alpha(r::c_hazard(), 0.9),
+                    );
+                    draw_line(
+                        s.x - 8.0,
+                        s.y + 8.0,
+                        s.x + 8.0,
+                        s.y - 8.0,
+                        2.5,
+                        alpha(r::c_hazard(), 0.9),
+                    );
                     hover_note = e.message();
                 }
             }
@@ -2267,38 +4196,94 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         draw_line(c.x, c.y - 12.0, c.x, c.y + 12.0, 1.5, alpha(WHITE, 0.45));
     }
     r::end_area();
-    text(
-        "Dashed ring: how far a source visibly changes the arrows. Dashed frame or shading: where sources may go. No path is shown until you launch.",
-        r::AX,
-        r::AY + r::AH + 24.0,
-        16.0,
-        gray(),
-    );
-    text("Click: place a source.   Drag: move it.   Del, X or right-click: remove it.   Arrows move the cursor, P places at it.   1-4 or Tab: kind.", r::AX, r::AY + r::AH + 46.0, 16.0, gray());
+    if spec.period.is_some() {
+        text("Click: place a source.  Drag: move it.  Del, X or right-click: remove it.  No path is shown until you launch.", r::AX, r::AY + r::AH + 12.0, 15.0, gray());
+    } else {
+        text(
+            "Dashed ring: how far a source visibly changes the arrows. Dashed frame or shading: where sources may go. No path is shown until you launch.",
+            r::AX,
+            r::AY + r::AH + 24.0,
+            16.0,
+            gray(),
+        );
+        text("Click: place a source.   Drag: move it.   Del, X or right-click: remove it.   Arrows move the cursor, P places at it.   1-4 or Tab: kind.", r::AX, r::AY + r::AH + 46.0, 16.0, gray());
+    }
 
     // ---- panel
     let mut y = panel_header(&lvl);
-    y = wrap("Place sources to bend the flow, then launch the probe.", PX0, y + 8.0, PW, 16.0, gray());
+    y = wrap(
+        "Place sources to bend the flow, then launch the probe.",
+        PX0,
+        y + 8.0,
+        PW,
+        16.0,
+        gray(),
+    );
     y += 8.0;
     if multi_kind {
         for (i, k) in spec.kinds.iter().enumerate() {
             let rr = Rect::new(PX0, y, PW, 26.0);
             let sel = g.sel == i;
             let hot = !flying && rr.contains(inp.mouse);
-            draw_rectangle(rr.x, rr.y, rr.w, rr.h, if sel { alpha(accent, 0.30) } else if hot { rgb(54, 62, 82) } else { rgb(36, 41, 56) });
-            draw_rectangle_lines(rr.x, rr.y, rr.w, rr.h, 2.0, if sel { accent } else { rgb(70, 74, 86) });
+            draw_rectangle(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                if sel {
+                    alpha(accent, 0.30)
+                } else if hot {
+                    rgb(54, 62, 82)
+                } else {
+                    rgb(36, 41, 56)
+                },
+            );
+            draw_rectangle_lines(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                2.0,
+                if sel { accent } else { rgb(70, 74, 86) },
+            );
             shape_glyph(rr.x + 16.0, rr.y + 13.0, *k, WHITE, 4.0, 9.0);
-            text(&format!("{}  {}", i + 1, k.short()), rr.x + 36.0, rr.y + 19.0, 18.0, if sel { WHITE } else { gray() });
+            text(
+                &format!("{}  {}", i + 1, k.short()),
+                rr.x + 36.0,
+                rr.y + 19.0,
+                18.0,
+                if sel { WHITE } else { gray() },
+            );
             if hot && inp.pressed {
                 let _ = g.select(i);
             }
             y += 29.0;
         }
-        y = wrap(&format!("A {} {}.", g.kind().short(), shape_kind_words(g.kind())), PX0, y + 14.0, PW, 17.0, WHITE);
+        y = wrap(
+            &format!("A {} {}.", g.kind().short(), shape_kind_words(g.kind())),
+            PX0,
+            y + 14.0,
+            PW,
+            17.0,
+            WHITE,
+        );
     } else {
         shape_glyph(PX0 + 14.0, y + 14.0, g.kind(), WHITE, 5.0, 11.0);
-        text(&format!("Source: {}", g.kind().short()), PX0 + 36.0, y + 20.0, 19.0, WHITE);
-        y = wrap(&format!("A {} {}.", g.kind().short(), shape_kind_words(g.kind())), PX0, y + 38.0, PW, 17.0, gray());
+        text(
+            &format!("Source: {}", g.kind().short()),
+            PX0 + 36.0,
+            y + 20.0,
+            19.0,
+            WHITE,
+        );
+        y = wrap(
+            &format!("A {} {}.", g.kind().short(), shape_kind_words(g.kind())),
+            PX0,
+            y + 38.0,
+            PW,
+            17.0,
+            gray(),
+        );
     }
     y += 10.0;
     text("Sources", PX0, y + 14.0, 19.0, WHITE);
@@ -2313,7 +4298,13 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     y += 34.0;
     let half = (PW - 8.0) / 2.0;
     let can_remove = !flying && st.shape_sel.is_some();
-    if ui::button(inp, Rect::new(PX0, y, half, 32.0), "Remove (Del)", can_remove, rgb(90, 96, 118)) {
+    if ui::button(
+        inp,
+        Rect::new(PX0, y, half, 32.0),
+        "Remove (Del)",
+        can_remove,
+        rgb(90, 96, 118),
+    ) {
         if let Some(i) = st.shape_sel {
             g.remove(i);
             st.shape_sel = None;
@@ -2322,7 +4313,13 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
             st.good = None;
         }
     }
-    if ui::button(inp, Rect::new(PX0 + half + 8.0, y, half, 32.0), "Clear all", !flying && !g.sources.is_empty(), rgb(90, 96, 118)) {
+    if ui::button(
+        inp,
+        Rect::new(PX0 + half + 8.0, y, half, 32.0),
+        "Clear all",
+        !flying && !g.sources.is_empty(),
+        rgb(90, 96, 118),
+    ) {
         g.clear();
         st.shape_sel = None;
         st.anim = None;
@@ -2331,11 +4328,100 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     }
     y += 40.0;
     if !hover_note.is_empty() && st.msg.is_empty() {
-        y = wrap(&hover_note, PX0, y + 4.0, PW, 16.0, alpha(r::c_hazard(), 1.0));
+        y = wrap(
+            &hover_note,
+            PX0,
+            y + 4.0,
+            PW,
+            16.0,
+            alpha(r::c_hazard(), 1.0),
+        );
+    }
+    if let Some((lo, hi)) = g.intensity_range() {
+        y += 4.0;
+        text(
+            &format!("Background intensity: {:.2}", g.intensity),
+            PX0,
+            y + 14.0,
+            19.0,
+            WHITE,
+        );
+        let mut v = g.intensity;
+        if ui::slider(
+            inp,
+            Rect::new(PX0, y + 24.0, PW, 16.0),
+            &mut v,
+            lo,
+            hi,
+            r::c_zone(),
+        ) && !flying
+        {
+            g.set_intensity(v);
+            st.anim = None;
+            st.msg.clear();
+            st.good = None;
+        }
+        if !flying && is_key_pressed(KeyCode::Minus) {
+            g.set_intensity(g.intensity - 0.1);
+            st.anim = None;
+        }
+        if !flying && is_key_pressed(KeyCode::Equal) {
+            g.set_intensity(g.intensity + 0.1);
+            st.anim = None;
+        }
+        y = wrap(
+            "Sources ignore the dial: only the background changes.",
+            PX0,
+            y + 50.0,
+            PW,
+            15.0,
+            gray(),
+        );
+    }
+    if let Some(per) = g.period() {
+        y = wrap(&format!("Launch phase {:.1} s. Click the timeline below, or press , and .   Sources do not pulse.", g.phase), PX0, y + 8.0, PW, 16.0, WHITE);
+        if !flying {
+            if is_key_pressed(KeyCode::Comma) {
+                g.set_phase(g.phase - 0.25);
+                st.anim = None;
+            }
+            if is_key_pressed(KeyCode::Period) {
+                g.set_phase(g.phase + 0.25);
+                st.anim = None;
+            }
+        }
+        let marks: Vec<(f64, bool)> = g.attempts.iter().map(|a| (a.phase, a.success)).collect();
+        if let Some(p) = ui::timeline(
+            inp,
+            Rect::new(r::AX, 752.0, r::AW, 28.0),
+            per,
+            ft,
+            &marks,
+            "Launch phase (triangle = reached, cross = missed)",
+        ) {
+            if !flying {
+                g.set_phase(p);
+                st.anim = None;
+                st.msg.clear();
+                st.good = None;
+            }
+        }
     }
     y += 8.0;
-    let go = ui::button(inp, Rect::new(PX0, y, PW, 44.0), "Launch (Space)", !flying, accent);
-    text(&format!("Launches: {}", g.attempts.len()), PX0, y + 66.0, 18.0, gray());
+    let go = ui::button(
+        inp,
+        Rect::new(PX0, y, PW, 44.0),
+        "Launch (Space)",
+        !flying,
+        accent,
+    );
+    text(
+        &format!("Launches: {}", g.attempts.len()),
+        PX0,
+        y + 66.0,
+        18.0,
+        gray(),
+    );
     if (go || space()) && !flying {
         let a = g.launch().clone();
         st.anim = Some(Anim::new(vec![(a.traj.clone(), r::c_probe())]));
@@ -2343,9 +4429,15 @@ fn shape_frame(g: &mut ShapeGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         st.msg = if a.success {
             "Success! The probe reached the target.".into()
         } else if a.sources.is_empty() {
-            format!("With no sources the probe {}. Change the field and launch again.", shape_result(a.traj.outcome))
+            format!(
+                "With no sources the probe {}. Change the field and launch again.",
+                shape_result(a.traj.outcome)
+            )
         } else {
-            format!("The probe {}. Change the field and launch again.", shape_result(a.traj.outcome))
+            format!(
+                "The probe {}. Change the field and launch again.",
+                shape_result(a.traj.outcome)
+            )
         };
     }
 }
@@ -2385,24 +4477,60 @@ fn sync_cond_text(l: &Level, c: &SyncCondResult) -> (String, bool) {
     let (a, b) = (SYNC_NAMES[c.cond.a], SYNC_NAMES[c.cond.b]);
     let (Some(off), Some(miss)) = (c.offset(), c.miss()) else {
         let who = if c.at_a.is_none() { a } else { b };
-        let reg = if c.at_a.is_none() { c.cond.ra } else { c.cond.rb };
-        return (format!("Probe {who} never reached {}, so there is nothing to compare.", sync_region_word(l, reg)), false);
+        let reg = if c.at_a.is_none() {
+            c.cond.ra
+        } else {
+            c.cond.rb
+        };
+        return (
+            format!(
+                "Probe {who} never reached {}, so there is nothing to compare.",
+                sync_region_word(l, reg)
+            ),
+            false,
+        );
     };
-    let allowed = if (c.cond.lo + c.cond.hi).abs() < 1e-9 { format!("within {:.1} s", c.cond.hi) } else { format!("{:.1} to {:.1} s after", c.cond.lo, c.cond.hi) };
-    let when = if off >= 0.0 { format!("{:.1} s after", off) } else { format!("{:.1} s before", -off) };
+    let allowed = if (c.cond.lo + c.cond.hi).abs() < 1e-9 {
+        format!("within {:.1} s", c.cond.hi)
+    } else {
+        format!("{:.1} to {:.1} s after", c.cond.lo, c.cond.hi)
+    };
+    let when = if off >= 0.0 {
+        format!("{:.1} s after", off)
+    } else {
+        format!("{:.1} s before", -off)
+    };
     let place = if c.cond.ra == c.cond.rb {
         format!("reached {}", sync_region_word(l, c.cond.rb))
     } else {
-        format!("reached {} (probe {a} reached {})", sync_region_word(l, c.cond.rb), sync_region_word(l, c.cond.ra))
+        format!(
+            "reached {} (probe {a} reached {})",
+            sync_region_word(l, c.cond.rb),
+            sync_region_word(l, c.cond.ra)
+        )
     };
-    let verdict = if miss == 0.0 { "in sync".to_string() } else if miss > 0.0 { format!("{:.1} s too late", miss) } else { format!("{:.1} s too early", -miss) };
-    (format!("Probe {b} {place} {when} probe {a}; allowed {allowed}: {verdict}."), miss == 0.0)
+    let verdict = if miss == 0.0 {
+        "in sync".to_string()
+    } else if miss > 0.0 {
+        format!("{:.1} s too late", miss)
+    } else {
+        format!("{:.1} s too early", -miss)
+    };
+    (
+        format!("Probe {b} {place} {when} probe {a}; allowed {allowed}: {verdict}."),
+        miss == 0.0,
+    )
 }
 
 /// Play the last flight again on the shared clock (the Launch button and the Replay button both start it).
 fn sync_start_playback(g: &SyncGame, st: &mut St) {
     if let Some(f) = g.flights.last() {
-        st.sync_end = f.trajs.iter().zip(&f.delays).map(|(t, d)| d + t.duration()).fold(0.0, f64::max);
+        st.sync_end = f
+            .trajs
+            .iter()
+            .zip(&f.delays)
+            .map(|(t, d)| d + t.duration())
+            .fold(0.0, f64::max);
         st.sync_clock = 0.0;
         st.sync_playing = true;
         st.sync_show = true;
@@ -2432,7 +4560,10 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
 
     // ---- input
     if !playing {
-        for (i, key) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3].iter().enumerate() {
+        for (i, key) in [KeyCode::Key1, KeyCode::Key2, KeyCode::Key3]
+            .iter()
+            .enumerate()
+        {
             if i < n && is_key_pressed(*key) {
                 st.sync_sel = i;
             }
@@ -2446,10 +4577,56 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         if is_key_pressed(KeyCode::Right) {
             g.nudge(st.sync_sel, by);
         }
+        // sources (levels with `sources` only): click the placement area to place or move it, Delete or right-click to remove
+        if let Some(sr) = spec.source_rules.clone() {
+            if is_key_pressed(KeyCode::Tab) {
+                st.steer_kind = (st.steer_kind + 1) % sr.kinds.len();
+            }
+            let kind = sr.kinds[st.steer_kind.min(sr.kinds.len() - 1)];
+            if inp.pressed && r::in_area(inp.mouse) {
+                let p = r::s2w(inp.mouse);
+                // with a limit of one source a click moves it, so a refused site leaves the old source alone
+                if spec.site_error(p).is_none() {
+                    if sr.max == 1 && !g.sources().is_empty() {
+                        g.remove_source(0);
+                    }
+                    if g.place_source(kind, p).is_ok() {
+                        st.sync_show = false; // the last flight was in the old field
+                    }
+                }
+            }
+            if (is_key_pressed(KeyCode::Delete)
+                || is_key_pressed(KeyCode::Backspace)
+                || (is_mouse_button_pressed(MouseButton::Right) && r::in_area(inp.mouse)))
+                && !g.sources().is_empty()
+            {
+                g.remove_source(g.sources().len() - 1);
+                st.sync_show = false;
+            }
+        }
+        // start slots (levels with `start_slots` only): click a numbered marker to start that probe from it
+        if let Some((_, slots)) = spec.slots.clone() {
+            if inp.pressed && r::in_area(inp.mouse) {
+                if let Some(i) =
+                    (0..slots.len()).find(|&i| r::w2s(slots[i]).distance(inp.mouse) < 20.0)
+                {
+                    if g.set_slot(i) {
+                        st.sync_show = false; // the last flight started somewhere else
+                    }
+                }
+            }
+        }
         // dragging a release handle on the timeline
-        let lane_of = |y: f32| -> Option<usize> { (0..n).find(|i| y >= TL_Y + 18.0 + *i as f32 * TL_LANE - 2.0 && y < TL_Y + 18.0 + (*i as f32 + 1.0) * TL_LANE) };
+        let lane_of = |y: f32| -> Option<usize> {
+            (0..n).find(|i| {
+                y >= TL_Y + 18.0 + *i as f32 * TL_LANE - 2.0
+                    && y < TL_Y + 18.0 + (*i as f32 + 1.0) * TL_LANE
+            })
+        };
         if inp.pressed {
-            if let Some(i) = lane_of(inp.mouse.y).filter(|_| inp.mouse.x >= r::AX && inp.mouse.x <= r::AX + r::AW) {
+            if let Some(i) = lane_of(inp.mouse.y)
+                .filter(|_| inp.mouse.x >= r::AX && inp.mouse.x <= r::AX + r::AW)
+            {
                 st.drag = Some(i);
                 st.sync_sel = i;
             }
@@ -2465,9 +4642,88 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
 
     // ---- drawing: the field at the field clock, the regions, the starts
     r::begin_area();
-    r::draw_field(&lvl.field, st.sync_clock, prefs.grid, prefs.hc);
+    r::draw_field(&spec.field, st.sync_clock, prefs.grid, prefs.hc);
+    let can_edit_sources = spec.source_rules.is_some() && !playing;
+    let mut hover_note = String::new();
+    if let Some(sr) = &spec.source_rules {
+        for z in &sr.zones {
+            r::draw_zone(z);
+        }
+    }
     for reg in &lvl.regions {
         r::draw_region(reg, false);
+    }
+    if let Some(sr) = &spec.source_rules {
+        let infl = vfield::modes::influence_radius_of(sr.k, sr.sigma);
+        for src in spec.sources.iter() {
+            draw_shape_source(infl, src.pos, src.kind, accent, false, false);
+            if sr.kinds.len() > 1 {
+                let sp = r::w2s(src.pos);
+                text(
+                    src.kind.short(),
+                    sp.x + 14.0,
+                    sp.y - 30.0,
+                    16.0,
+                    alpha(accent, 0.95),
+                );
+            }
+        }
+        if can_edit_sources && r::in_area(inp.mouse) {
+            let aim = r::s2w(inp.mouse);
+            let kind = sr.kinds[st.steer_kind.min(sr.kinds.len() - 1)];
+            match spec.site_error(aim) {
+                None => draw_shape_source(infl, aim, kind, accent, false, true),
+                Some(e) => {
+                    let sp = r::w2s(aim);
+                    draw_line(
+                        sp.x - 8.0,
+                        sp.y - 8.0,
+                        sp.x + 8.0,
+                        sp.y + 8.0,
+                        2.5,
+                        alpha(r::c_hazard(), 0.9),
+                    );
+                    draw_line(
+                        sp.x - 8.0,
+                        sp.y + 8.0,
+                        sp.x + 8.0,
+                        sp.y - 8.0,
+                        2.5,
+                        alpha(r::c_hazard(), 0.9),
+                    );
+                    hover_note = e.message();
+                }
+            }
+        }
+    }
+    if let Some((probe, slots)) = &spec.slots {
+        for (i, &p) in slots.iter().enumerate() {
+            let c = r::w2s(p);
+            let chosen = i == spec.slot;
+            let hot = !playing && c.distance(inp.mouse) < 20.0;
+            draw_poly_lines(
+                c.x,
+                c.y,
+                4,
+                if chosen { 11.0 } else { 9.0 },
+                0.0,
+                if chosen || hot { 3.0 } else { 1.5 },
+                if chosen {
+                    sync_color(*probe)
+                } else if hot {
+                    WHITE
+                } else {
+                    gray()
+                },
+            );
+            text(
+                &(i + 1).to_string(),
+                c.x + 12.0,
+                c.y + 20.0,
+                16.0,
+                if chosen { sync_color(*probe) } else { gray() },
+            );
+        }
     }
     for (i, s) in spec.starts.iter().enumerate() {
         r::draw_start(*s);
@@ -2502,15 +4758,23 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     let mut t = 0.0;
     while t <= sync_axis(&spec) + 1e-9 {
         let x = sync_tx(&spec, t);
-        let cycle = (t / spec.period).fract().abs() < 1e-9 || ((t / spec.period).fract() - 1.0).abs() < 1e-9;
-        draw_line(x, TL_Y + if cycle { 2.0 } else { 10.0 }, x, TL_Y + 16.0, if cycle { 2.0 } else { 1.0 }, rgb(120, 128, 150));
+        let cycle = (t / spec.period).fract().abs() < 1e-9
+            || ((t / spec.period).fract() - 1.0).abs() < 1e-9;
+        draw_line(
+            x,
+            TL_Y + if cycle { 2.0 } else { 10.0 },
+            x,
+            TL_Y + 16.0,
+            if cycle { 2.0 } else { 1.0 },
+            rgb(120, 128, 150),
+        );
         if (t as i64) % 2 == 0 && t.fract() == 0.0 {
             text(&format!("{}", t as i64), x - 4.0, TL_Y + 14.0, 12.0, gray());
         }
         t += 1.0;
     }
     let flight = g.flights.last().filter(|_| st.sync_show).cloned();
-    for i in 0..n {
+    for (i, name) in SYNC_NAMES.iter().enumerate().take(n) {
         let y = TL_Y + 18.0 + i as f32 * TL_LANE;
         let c = sync_color(i);
         draw_rectangle(r::AX + 1.0, y, r::AW - 2.0, TL_LANE - 3.0, rgb(33, 38, 52));
@@ -2519,17 +4783,49 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
             // the allowed band for this probe, placed by the flight that just happened (not by the answer)
             for cr in f.conds.iter().filter(|cr| cr.cond.b == i) {
                 if let Some(a) = cr.at_a {
-                    let (x0, x1) = (sync_tx(&spec, a + cr.cond.lo), sync_tx(&spec, a + cr.cond.hi));
-                    draw_rectangle(x0, y, (x1 - x0).max(2.0), TL_LANE - 3.0, if cr.ok() { alpha(good_c(), 0.30) } else { alpha(r::c_hazard(), 0.28) });
+                    let (x0, x1) = (
+                        sync_tx(&spec, a + cr.cond.lo),
+                        sync_tx(&spec, a + cr.cond.hi),
+                    );
+                    draw_rectangle(
+                        x0,
+                        y,
+                        (x1 - x0).max(2.0),
+                        TL_LANE - 3.0,
+                        if cr.ok() {
+                            alpha(good_c(), 0.30)
+                        } else {
+                            alpha(r::c_hazard(), 0.28)
+                        },
+                    );
                 }
             }
             let x0 = sync_tx(&spec, f.delays[i]);
             let end = f.delays[i] + f.trajs[i].duration();
             let x1 = sync_tx(&spec, end);
-            draw_rectangle(x0, y + 4.0, (x1 - x0).max(1.0), 5.0, alpha(c, if stale { 0.25 } else { 0.7 }));
+            draw_rectangle(
+                x0,
+                y + 4.0,
+                (x1 - x0).max(1.0),
+                5.0,
+                alpha(c, if stale { 0.25 } else { 0.7 }),
+            );
             if f.reached[i] {
-                draw_line(x1, y, x1, y + TL_LANE - 3.0, 2.5, if stale { alpha(WHITE, 0.4) } else { WHITE });
-                text(&format!("{:.1}", end), x1 + 4.0, y + 12.0, 13.0, if stale { gray() } else { WHITE });
+                draw_line(
+                    x1,
+                    y,
+                    x1,
+                    y + TL_LANE - 3.0,
+                    2.5,
+                    if stale { alpha(WHITE, 0.4) } else { WHITE },
+                );
+                text(
+                    &format!("{:.1}", end),
+                    x1 + 4.0,
+                    y + 12.0,
+                    13.0,
+                    if stale { gray() } else { WHITE },
+                );
             }
         }
         // the release handle: where this probe is set to leave
@@ -2538,38 +4834,232 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         if st.sync_sel == i {
             draw_rectangle_lines(hx - 7.0, y - 3.0, 14.0, TL_LANE + 3.0, 2.0, WHITE);
         }
-        text(SYNC_NAMES[i], r::AX + 6.0, y + 12.0, 14.0, c);
+        text(name, r::AX + 6.0, y + 12.0, 14.0, c);
     }
-    let cx = sync_tx(&spec, if playing { st.sync_clock } else { st.sync_clock });
+    let cx = sync_tx(&spec, st.sync_clock);
     draw_line(cx, TL_Y + 16.0, cx, TL_Y + 74.0, 1.5, alpha(accent, 0.8));
 
     // ---- panel
     let mut y = panel_header(&lvl);
-    y = wrap("Choose when each probe leaves, then launch them together. They fly the same field.", PX0, y + 8.0, PW, 16.0, gray());
+    y = wrap(
+        "Choose when each probe leaves, then launch them together. They fly the same field.",
+        PX0,
+        y + 8.0,
+        PW,
+        16.0,
+        gray(),
+    );
     y += 8.0;
-    for i in 0..n {
+    for (i, name) in SYNC_NAMES.iter().enumerate().take(n) {
         let hot = !playing && Rect::new(PX0, y, PW, 30.0).contains(inp.mouse);
         let sel = st.sync_sel == i;
-        draw_rectangle(PX0, y, PW, 30.0, if sel { alpha(sync_color(i), 0.28) } else if hot { rgb(54, 62, 82) } else { rgb(36, 41, 56) });
-        draw_rectangle_lines(PX0, y, PW, 30.0, 2.0, if sel { sync_color(i) } else { rgb(70, 74, 86) });
+        draw_rectangle(
+            PX0,
+            y,
+            PW,
+            30.0,
+            if sel {
+                alpha(sync_color(i), 0.28)
+            } else if hot {
+                rgb(54, 62, 82)
+            } else {
+                rgb(36, 41, 56)
+            },
+        );
+        draw_rectangle_lines(
+            PX0,
+            y,
+            PW,
+            30.0,
+            2.0,
+            if sel { sync_color(i) } else { rgb(70, 74, 86) },
+        );
         draw_circle(PX0 + 16.0, y + 15.0, 7.0, sync_color(i));
-        text(&format!("{}  leaves at {:.1} s", SYNC_NAMES[i], g.delays[i]), PX0 + 32.0, y + 21.0, 18.0, WHITE);
+        text(
+            &format!("{}  leaves at {:.1} s", *name, g.delays[i]),
+            PX0 + 32.0,
+            y + 21.0,
+            18.0,
+            WHITE,
+        );
         if hot && inp.pressed && inp.mouse.x < PX0 + PW - 60.0 {
             st.sync_sel = i;
         }
-        if ui::button(inp, Rect::new(PX0 + PW - 56.0, y + 3.0, 24.0, 24.0), "-", !playing, rgb(90, 96, 118)) {
+        if ui::button(
+            inp,
+            Rect::new(PX0 + PW - 56.0, y + 3.0, 24.0, 24.0),
+            "-",
+            !playing,
+            rgb(90, 96, 118),
+        ) {
             st.sync_sel = i;
             g.nudge(i, -SYNC_DELAY_STEP);
         }
-        if ui::button(inp, Rect::new(PX0 + PW - 28.0, y + 3.0, 24.0, 24.0), "+", !playing, rgb(90, 96, 118)) {
+        if ui::button(
+            inp,
+            Rect::new(PX0 + PW - 28.0, y + 3.0, 24.0, 24.0),
+            "+",
+            !playing,
+            rgb(90, 96, 118),
+        ) {
             st.sync_sel = i;
             g.nudge(i, SYNC_DELAY_STEP);
         }
         y += 34.0;
     }
+    if let Some((probe, slots)) = spec.slots.clone() {
+        text(
+            &format!("{} starts from", SYNC_NAMES[probe]),
+            PX0,
+            y + 16.0,
+            18.0,
+            WHITE,
+        );
+        let bw = 34.0;
+        for i in 0..slots.len() {
+            let rr = Rect::new(PX0 + 132.0 + i as f32 * (bw + 6.0), y + 1.0, bw, 26.0);
+            let sel = spec.slot == i;
+            let hot = !playing && rr.contains(inp.mouse);
+            draw_rectangle(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                if sel {
+                    alpha(sync_color(probe), 0.30)
+                } else if hot {
+                    rgb(54, 62, 82)
+                } else {
+                    rgb(36, 41, 56)
+                },
+            );
+            draw_rectangle_lines(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                2.0,
+                if sel {
+                    sync_color(probe)
+                } else {
+                    rgb(70, 74, 86)
+                },
+            );
+            text(
+                &(i + 1).to_string(),
+                rr.x + 12.0,
+                rr.y + 19.0,
+                17.0,
+                if sel { WHITE } else { gray() },
+            );
+            if hot && inp.pressed && g.set_slot(i) {
+                st.sync_show = false;
+            }
+        }
+        y += 34.0;
+        y = wrap(
+            "Click a numbered marker on the field, or a number here, to start it from there.",
+            PX0,
+            y + 2.0,
+            PW,
+            15.0,
+            gray(),
+        );
+        y += 4.0;
+    }
+    if let Some(sr) = spec.source_rules.clone() {
+        let half = (PW - 6.0) / 2.0;
+        for (i, k) in sr.kinds.iter().enumerate() {
+            let rr = Rect::new(PX0 + i as f32 * (half + 6.0), y + 2.0, half, 28.0);
+            let sel = st.steer_kind.min(sr.kinds.len() - 1) == i;
+            let hot = can_edit_sources && rr.contains(inp.mouse);
+            draw_rectangle(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                if sel {
+                    alpha(accent, 0.30)
+                } else if hot {
+                    rgb(54, 62, 82)
+                } else {
+                    rgb(36, 41, 56)
+                },
+            );
+            draw_rectangle_lines(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                2.0,
+                if sel { accent } else { rgb(70, 74, 86) },
+            );
+            shape_glyph(rr.x + 15.0, rr.y + 14.0, *k, WHITE, 4.0, 9.0);
+            text(
+                k.short(),
+                rr.x + 30.0,
+                rr.y + 19.0,
+                16.0,
+                if sel { WHITE } else { gray() },
+            );
+            if hot && inp.pressed {
+                st.steer_kind = i;
+            }
+        }
+        y += 38.0;
+        text("Source", PX0, y + 14.0, 18.0, WHITE);
+        for i in 0..sr.max {
+            let (cx, cy) = (PX0 + 74.0 + i as f32 * 26.0, y + 8.0);
+            if i < spec.sources.len() {
+                draw_circle(cx, cy, 9.0, accent);
+            } else {
+                draw_circle_lines(cx, cy, 9.0, 2.0, gray());
+            }
+        }
+        if ui::button(
+            inp,
+            Rect::new(PX0 + PW - 104.0, y - 6.0, 104.0, 26.0),
+            "Remove (Del)",
+            can_edit_sources && !spec.sources.is_empty(),
+            rgb(90, 96, 118),
+        ) {
+            g.clear_sources();
+            st.sync_show = false;
+        }
+        y += 26.0;
+        let note = if hover_note.is_empty() {
+            "Click the shaded area to place or move it. Tab: kind."
+        } else {
+            hover_note.as_str()
+        };
+        y = wrap(
+            note,
+            PX0,
+            y + 10.0,
+            PW,
+            15.0,
+            if hover_note.is_empty() {
+                gray()
+            } else {
+                alpha(r::c_hazard(), 1.0)
+            },
+        );
+    }
     y += 6.0;
-    let go = ui::button(inp, Rect::new(PX0, y, PW, 44.0), "Launch (Space)", !playing, accent);
-    text(&format!("Launches: {}", g.flights.len()), PX0, y + 66.0, 18.0, gray());
+    let go = ui::button(
+        inp,
+        Rect::new(PX0, y, PW, 44.0),
+        "Launch (Space)",
+        !playing,
+        accent,
+    );
+    text(
+        &format!("Launches: {}", g.flights.len()),
+        PX0,
+        y + 66.0,
+        18.0,
+        gray(),
+    );
     if (go || space()) && !playing {
         g.launch();
         sync_start_playback(g, st);
@@ -2579,11 +5069,29 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
     let mut yy = y + 90.0;
     if let (Some(f), false) = (flight.as_ref(), playing) {
         if f.success {
-            yy = wrap("Synchronized! Every condition holds.", PX0, yy, PW, 16.0, good_c()) + 6.0;
+            yy = wrap(
+                "Synchronized! Every condition holds.",
+                PX0,
+                yy,
+                PW,
+                16.0,
+                good_c(),
+            ) + 6.0;
         }
         for (i, ok) in f.reached.iter().enumerate() {
             if !ok {
-                yy = wrap(&format!("Probe {} {}. Release it at another time.", SYNC_NAMES[i], shape_result(f.trajs[i].outcome)), PX0, yy, PW, 15.0, alpha(r::c_hazard(), 1.0)) + 4.0;
+                yy = wrap(
+                    &format!(
+                        "Probe {} {}. Release it at another time.",
+                        SYNC_NAMES[i],
+                        shape_result(f.trajs[i].outcome)
+                    ),
+                    PX0,
+                    yy,
+                    PW,
+                    15.0,
+                    alpha(r::c_hazard(), 1.0),
+                ) + 4.0;
             }
         }
         for c in &f.conds {
@@ -2592,7 +5100,18 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
                 continue;
             }
             let (msg, ok) = sync_cond_text(&lvl, c);
-            yy = wrap(&msg, PX0, yy, PW, 15.0, if ok { good_c() } else { alpha(r::c_hazard(), 1.0) }) + 4.0;
+            yy = wrap(
+                &msg,
+                PX0,
+                yy,
+                PW,
+                15.0,
+                if ok {
+                    good_c()
+                } else {
+                    alpha(r::c_hazard(), 1.0)
+                },
+            ) + 4.0;
         }
     }
     wrap("Timeline (bottom): seconds on the field clock; long ticks mark each cycle. A bar is a flight and a white tick its arrival; the shaded band is where the other probe's arrival is allowed. Drag a handle, or select a probe (1-3) and use Left / Right (Shift: 0.5 s). V replays.", PX0, (yy + 14.0).max(470.0), PW, 12.0, gray());
@@ -2617,7 +5136,10 @@ mod tests {
 
     // ---- Survey front end: the state transitions the screen drives, tested without a window ----
     fn survey_state() -> (SurveyGame, St) {
-        (SurveyGame::new(vfield::levels::survey_levels().remove(0)), St::default())
+        (
+            SurveyGame::new(vfield::levels::survey_levels().remove(0)),
+            St::default(),
+        )
     }
 
     #[test]
@@ -2626,10 +5148,16 @@ mod tests {
         assert!(st.tool == Tool::Scout);
         survey_place(&mut g, &mut st, vfield::v2(-2.0, 2.0));
         assert!(st.tool == Tool::Scout, "a scout is still available");
-        assert!(st.anim.as_ref().is_some_and(|a| a.items.len() == 1), "the new trail flies on its own");
+        assert!(
+            st.anim.as_ref().is_some_and(|a| a.items.len() == 1),
+            "the new trail flies on its own"
+        );
         survey_place(&mut g, &mut st, vfield::v2(1.0, -2.0));
         assert_eq!(g.scouts_left(), 0);
-        assert!(st.tool == Tool::Marker, "with no scouts left the next click can only be the estimate");
+        assert!(
+            st.tool == Tool::Marker,
+            "with no scouts left the next click can only be the estimate"
+        );
     }
 
     #[test]
@@ -2641,7 +5169,11 @@ mod tests {
         survey_place(&mut g, &mut st, free);
         assert!(st.msg.contains("already") && g.scouts_left() == g.spec.budget);
         for i in 0..g.spec.budget {
-            survey_place(&mut g, &mut st, vfield::v2(-2.0 + 3.0 * i as f64, 2.0 - 4.0 * i as f64));
+            survey_place(
+                &mut g,
+                &mut st,
+                vfield::v2(-2.0 + 3.0 * i as f64, 2.0 - 4.0 * i as f64),
+            );
         }
         assert_eq!(g.scouts_left(), 0);
         // the tool has moved on to the marker, so a click now places the estimate rather than failing...
@@ -2672,7 +5204,10 @@ mod tests {
     }
 
     fn typed_state() -> (SurveyGame, St) {
-        (SurveyGame::new(levels::survey_levels().remove(1)), St::default())
+        (
+            SurveyGame::new(levels::survey_levels().remove(1)),
+            St::default(),
+        )
     }
 
     /// Answer the current round correctly through the interface's own commit.
@@ -2691,8 +5226,18 @@ mod tests {
         g.set_marker(src).unwrap();
         g.set_marker_kind(SourceKind::Attractor).unwrap();
         survey_commit(&mut g, &mut st);
-        assert!(st.msg.contains("wrong kind") && st.msg.contains("repeller") && st.good == Some(false) && !st.banner, "{}", st.msg);
-        assert!(!st.msg.contains("sideways"), "only a swirl gets the swirl explanation");
+        assert!(
+            st.msg.contains("wrong kind")
+                && st.msg.contains("repeller")
+                && st.good == Some(false)
+                && !st.banner,
+            "{}",
+            st.msg
+        );
+        assert!(
+            !st.msg.contains("sideways"),
+            "only a swirl gets the swirl explanation"
+        );
         // find the repeller and then the attractor, so that a swirl comes up
         for _ in 0..2 {
             g.retry().unwrap();
@@ -2700,20 +5245,45 @@ mod tests {
         }
         g.retry().unwrap();
         let (src, kind) = g.round().truth();
-        assert!(kind.is_swirl(), "after a repeller and an attractor, a swirl");
+        assert!(
+            kind.is_swirl(),
+            "after a repeller and an attractor, a swirl"
+        );
         g.set_marker(vfield::v2(src.x + 2.0, src.y)).unwrap();
         g.set_marker_kind(SourceKind::Repeller).unwrap();
         survey_commit(&mut g, &mut st);
-        assert!(st.msg.contains("Missed") && st.msg.contains("swirl") && st.msg.contains("sideways") && st.msg.contains("P"), "{}", st.msg);
-        assert!(st.msg.len() <= 140, "the message must fit above the buttons ({} chars)", st.msg.len());
+        assert!(
+            st.msg.contains("Missed")
+                && st.msg.contains("swirl")
+                && st.msg.contains("sideways")
+                && st.msg.contains("P"),
+            "{}",
+            st.msg
+        );
+        assert!(
+            st.msg.len() <= 140,
+            "the message must fit above the buttons ({} chars)",
+            st.msg.len()
+        );
         // a swirl found completes the level and says so
         g.retry().unwrap();
         answer(&mut g, &mut st);
-        assert!(st.msg.contains("Found it") && st.msg.contains("It was a swirl") && st.msg.contains("3 of 3") && st.banner && g.won, "{}", st.msg);
+        assert!(
+            st.msg.contains("Found it")
+                && st.msg.contains("It was a swirl")
+                && st.msg.contains("3 of 3")
+                && st.banner
+                && g.won,
+            "{}",
+            st.msg
+        );
     }
 
     fn pair_state() -> (SurveyGame, St) {
-        (SurveyGame::new(levels::survey_levels().remove(3)), St::default())
+        (
+            SurveyGame::new(levels::survey_levels().remove(3)),
+            St::default(),
+        )
     }
 
     #[test]
@@ -2724,7 +5294,11 @@ mod tests {
         let truth = g.round().truth_sources();
         g.place_marker(vfield::v2(0.0, 0.0)).unwrap();
         survey_commit(&mut g, &mut st);
-        assert!(st.msg.contains("second marker") && !g.finished() && st.good.is_none(), "{}", st.msg);
+        assert!(
+            st.msg.contains("second marker") && !g.finished() && st.good.is_none(),
+            "{}",
+            st.msg
+        );
         survey_test(&mut g, &mut st);
         assert!(st.msg.contains("both markers"), "{}", st.msg);
         // the ghost: both markers between the sources
@@ -2732,8 +5306,19 @@ mod tests {
         g.set_marker(mid).unwrap();
         g.set_marker2(mid).unwrap();
         survey_commit(&mut g, &mut st);
-        assert!(st.msg.starts_with("Missed") && st.msg.contains("between the two sources") && st.good == Some(false) && !st.banner, "{}", st.msg);
-        assert!(st.msg.len() <= 140, "the message must fit above the buttons ({} chars)", st.msg.len());
+        assert!(
+            st.msg.starts_with("Missed")
+                && st.msg.contains("between the two sources")
+                && st.good == Some(false)
+                && !st.banner,
+            "{}",
+            st.msg
+        );
+        assert!(
+            st.msg.len() <= 140,
+            "the message must fit above the buttons ({} chars)",
+            st.msg.len()
+        );
         // a miss that is not the ghost does not say so
         g.retry().unwrap();
         let t = g.round().truth_sources();
@@ -2742,14 +5327,26 @@ mod tests {
         g.set_marker(t[0] + (t[0] - mid) * 0.7).unwrap();
         g.set_marker2(t[1] + (t[1] - mid) * 0.7).unwrap();
         survey_commit(&mut g, &mut st);
-        assert!(st.msg.starts_with("Missed") && !st.msg.contains("between"), "{}", st.msg);
+        assert!(
+            st.msg.starts_with("Missed") && !st.msg.contains("between"),
+            "{}",
+            st.msg
+        );
         // a pair found is progress toward four, not the end
         g.retry().unwrap();
         let t = g.round().truth_sources();
         g.set_marker(t[1]).unwrap();
         g.set_marker2(t[0]).unwrap();
         survey_commit(&mut g, &mut st);
-        assert!(st.msg.starts_with("Found both") && st.msg.contains("1 of 4 found") && st.msg.contains("Press R") && !st.banner && !g.won, "{}", st.msg);
+        assert!(
+            st.msg.starts_with("Found both")
+                && st.msg.contains("1 of 4 found")
+                && st.msg.contains("Press R")
+                && !st.banner
+                && !g.won,
+            "{}",
+            st.msg
+        );
         assert!(st.msg.len() <= 140, "{} chars", st.msg.len());
     }
 
@@ -2760,13 +5357,22 @@ mod tests {
         st.hints = 3;
         st.hints_hidden = true;
         do_retry(&mut game, &mut st);
-        assert_eq!((st.hints, st.hints_hidden), (0, false), "each attempt is a new source, so its hints start again");
+        assert_eq!(
+            (st.hints, st.hints_hidden),
+            (0, false),
+            "each attempt is a new source, so its hints start again"
+        );
         // the box covers the playfield, so the player's next action hides it
-        let Game::Survey(g) = &mut game else { unreachable!() };
+        let Game::Survey(g) = &mut game else {
+            unreachable!()
+        };
         st.hints = 2;
         st.hints_hidden = false;
         survey_place(g, &mut st, vfield::v2(-2.0, 0.5));
-        assert!(st.hints_hidden && st.hints == 2, "placing a scout hides the hints without forgetting them");
+        assert!(
+            st.hints_hidden && st.hints == 2,
+            "placing a scout hides the hints without forgetting them"
+        );
         st.hints_hidden = false;
         survey_place(g, &mut st, vfield::v2(-2.0, 0.5));
         st.tool = Tool::Marker;
@@ -2775,7 +5381,10 @@ mod tests {
         assert!(st.hints_hidden, "placing a marker hides them too");
         st.hints_hidden = false;
         survey_commit(g, &mut st);
-        assert!(st.hints_hidden, "so does a commit, even one that is refused");
+        assert!(
+            st.hints_hidden,
+            "so does a commit, even one that is refused"
+        );
     }
 
     #[test]
@@ -2783,11 +5392,19 @@ mod tests {
         let (mut g, mut st) = typed_state();
         answer(&mut g, &mut st);
         assert!(st.good == Some(true) && !st.banner && !g.won, "{}", st.msg);
-        assert!(st.msg.contains("1 of 3 kinds found") && st.msg.contains("Press R"), "{}", st.msg);
+        assert!(
+            st.msg.contains("1 of 3 kinds found") && st.msg.contains("Press R"),
+            "{}",
+            st.msg
+        );
         assert!(st.msg.len() <= 140, "{} chars", st.msg.len());
         g.retry().unwrap();
         answer(&mut g, &mut st);
-        assert!(st.msg.contains("2 of 3") && !st.banner && !g.won, "{}", st.msg);
+        assert!(
+            st.msg.contains("2 of 3") && !st.banner && !g.won,
+            "{}",
+            st.msg
+        );
     }
 
     #[test]
@@ -2797,7 +5414,8 @@ mod tests {
         for a in 0..6 {
             let mut g = SurveyGame::new(lvl.clone());
             for _ in 0..a {
-                g.set_marker(g.spec.zone.clamp(vfield::v2(0.0, 0.0))).unwrap();
+                g.set_marker(g.spec.zone.clamp(vfield::v2(0.0, 0.0)))
+                    .unwrap();
                 g.commit().unwrap();
                 g.retry().unwrap();
             }
@@ -2805,7 +5423,11 @@ mod tests {
             assert_eq!(hints.len(), 3);
             texts.insert(hints[0].clone());
         }
-        assert_eq!(texts.len(), 3, "quiet, one arrow and a wedge each get their own first hint");
+        assert_eq!(
+            texts.len(),
+            3,
+            "quiet, one arrow and a wedge each get their own first hint"
+        );
     }
 
     #[test]
@@ -2827,9 +5449,15 @@ mod tests {
         survey_place(&mut g, &mut st, vfield::v2(-2.0, 2.0));
         let items = survey_items(&g);
         assert_eq!(items.len(), 2);
-        assert_ne!((items[0].1.r, items[0].1.g, items[0].1.b), (items[1].1.r, items[1].1.g, items[1].1.b));
+        assert_ne!(
+            (items[0].1.r, items[0].1.g, items[0].1.b),
+            (items[1].1.r, items[1].1.g, items[1].1.b)
+        );
         // retry is only offered once the round is committed
-        assert!(!retry_enabled(&Game::Survey(SurveyGame::new(vfield::levels::survey_levels().remove(0))), &st));
+        assert!(!retry_enabled(
+            &Game::Survey(SurveyGame::new(vfield::levels::survey_levels().remove(0))),
+            &st
+        ));
         let mut done = SurveyGame::new(vfield::levels::survey_levels().remove(0));
         done.set_marker(vfield::v2(0.0, 0.0)).unwrap();
         done.commit().unwrap();
@@ -2852,17 +5480,30 @@ mod tests {
         app.persist();
         assert!(app.save_ok);
         let again = App::new();
-        assert!(again.progress.contains("pos-1") && again.progress.contains("sur-5") && again.progress.len() == 2);
+        assert!(
+            again.progress.contains("pos-1")
+                && again.progress.contains("sur-5")
+                && again.progress.len() == 2
+        );
         assert_eq!((again.prefs.grid, again.prefs.hc), (0, true));
-        assert!(!again.prefs.unlock_all, "the unlock-all cheat is for one session only");
+        assert!(
+            !again.prefs.unlock_all,
+            "the unlock-all cheat is for one session only"
+        );
         // a level finished earlier opens the next one after a restart
         let sur = again.chapter_levels(Chapter::Survey);
-        assert!(!again.level_unlocked(Chapter::Survey, 1), "sur-1 is not done, so sur-2 stays locked");
+        assert!(
+            !again.level_unlocked(Chapter::Survey, 1),
+            "sur-1 is not done, so sur-2 stays locked"
+        );
         let mut app = again;
         app.progress.insert("sur-1".into());
         assert!(app.level_unlocked(Chapter::Survey, 1) && sur.len() == 5);
         // a save that cannot be written is reported, not hidden
-        std::env::set_var("VFIELD_SAVE_DIR", dir.join(vfield::save::file::FILE).join("x")); // a file is in the way
+        std::env::set_var(
+            "VFIELD_SAVE_DIR",
+            dir.join(vfield::save::file::FILE).join("x"),
+        ); // a file is in the way
         app.persist();
         assert!(!app.save_ok);
         std::env::remove_var("VFIELD_SAVE_DIR");

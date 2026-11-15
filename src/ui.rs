@@ -46,12 +46,31 @@ pub fn text_c(s: &str, cx: f32, cy: f32, size: f32, c: Color) {
     draw_text(s, cx - d.width / 2.0, cy + d.height / 2.0, size, c);
 }
 
+/// `s` cut to fit `w` pixels at `size`, ending in "..." when something was dropped (for one-line labels in a row).
+pub fn fit_text(s: &str, size: f32, w: f32) -> String {
+    if measure_text(s, None, size as u16, 1.0).width <= w {
+        return s.to_string();
+    }
+    let chars: Vec<char> = s.chars().collect();
+    for n in (1..chars.len()).rev() {
+        let t: String = chars[..n].iter().collect::<String>().trim_end().to_string() + "...";
+        if measure_text(&t, None, size as u16, 1.0).width <= w {
+            return t;
+        }
+    }
+    "...".to_string()
+}
+
 /// The lines `wrap` would draw for `s` in a column `w` wide.
 pub fn wrap_lines(s: &str, w: f32, size: f32) -> Vec<String> {
     let mut lines = vec![];
     let mut line = String::new();
     for word in s.split_whitespace() {
-        let trial = if line.is_empty() { word.to_string() } else { format!("{} {}", line, word) };
+        let trial = if line.is_empty() {
+            word.to_string()
+        } else {
+            format!("{} {}", line, word)
+        };
         if measure_text(&trial, None, size as u16, 1.0).width > w && !line.is_empty() {
             lines.push(std::mem::replace(&mut line, word.to_string()));
         } else {
@@ -91,13 +110,26 @@ pub fn button(inp: &Input, r: Rect, label: &str, enabled: bool, accent: Color) -
         rgb(48, 54, 70)
     };
     draw_rectangle(r.x, r.y, r.w, r.h, bg);
-    draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, if enabled { accent } else { rgb(70, 74, 86) });
+    draw_rectangle_lines(
+        r.x,
+        r.y,
+        r.w,
+        r.h,
+        2.0,
+        if enabled { accent } else { rgb(70, 74, 86) },
+    );
     // shrink the font until the label fits inside the button
     let mut size = 20.0;
     while size > 11.0 && measure_text(label, None, size as u16, 1.0).width > r.w - 10.0 {
         size -= 1.0;
     }
-    text_c(label, r.x + r.w / 2.0, r.y + r.h / 2.0, size, if enabled { WHITE } else { rgb(110, 114, 126) });
+    text_c(
+        label,
+        r.x + r.w / 2.0,
+        r.y + r.h / 2.0,
+        size,
+        if enabled { WHITE } else { rgb(110, 114, 126) },
+    );
     hot && inp.pressed
 }
 
@@ -122,7 +154,14 @@ pub fn slider(inp: &Input, r: Rect, v: &mut f64, lo: f64, hi: f64, c: Color) -> 
 }
 
 /// Phase timeline. `marks` are earlier launches (phase, success). Returns a phase if the player scrubbed.
-pub fn timeline(inp: &Input, r: Rect, period: f64, cursor: f64, marks: &[(f64, bool)], label: &str) -> Option<f64> {
+pub fn timeline(
+    inp: &Input,
+    r: Rect,
+    period: f64,
+    cursor: f64,
+    marks: &[(f64, bool)],
+    label: &str,
+) -> Option<f64> {
     draw_rectangle(r.x, r.y, r.w, r.h, rgb(30, 34, 46));
     draw_rectangle_lines(r.x, r.y, r.w, r.h, 2.0, rgb(90, 98, 120));
     let n = period.round() as i32;
@@ -130,7 +169,13 @@ pub fn timeline(inp: &Input, r: Rect, period: f64, cursor: f64, marks: &[(f64, b
         let x = r.x + r.w * (k as f32 / n as f32);
         draw_line(x, r.y + r.h - 12.0, x, r.y + r.h, 2.0, rgb(120, 128, 150));
         if k < n {
-            text(&format!("{}", k), x + 3.0, r.y + r.h - 2.0, 14.0, rgb(130, 138, 160));
+            text(
+                &format!("{}", k),
+                x + 3.0,
+                r.y + r.h - 2.0,
+                14.0,
+                rgb(130, 138, 160),
+            );
         }
     }
     for (ph, ok) in marks {
@@ -138,8 +183,22 @@ pub fn timeline(inp: &Input, r: Rect, period: f64, cursor: f64, marks: &[(f64, b
         if *ok {
             draw_poly(x, r.y + 10.0, 3, 7.0, -90.0, rgb(0, 158, 115));
         } else {
-            draw_line(x - 5.0, r.y + 5.0, x + 5.0, r.y + 15.0, 3.0, rgb(213, 94, 0));
-            draw_line(x - 5.0, r.y + 15.0, x + 5.0, r.y + 5.0, 3.0, rgb(213, 94, 0));
+            draw_line(
+                x - 5.0,
+                r.y + 5.0,
+                x + 5.0,
+                r.y + 15.0,
+                3.0,
+                rgb(213, 94, 0),
+            );
+            draw_line(
+                x - 5.0,
+                r.y + 15.0,
+                x + 5.0,
+                r.y + 5.0,
+                3.0,
+                rgb(213, 94, 0),
+            );
         }
     }
     let cx = r.x + r.w * (cursor.rem_euclid(period) / period) as f32;

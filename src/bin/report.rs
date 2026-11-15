@@ -1,12 +1,28 @@
 //! `cargo run --release --bin report [-- --detail]` prints automated validation per level.
-//! `-- --steer`, `-- --survey` and `-- --shape` print the full Markdown reports for those mechanics.
+//! `-- --steer`, `-- --survey`, `-- --shape`, `-- --sync` and `-- --combo` print the full Markdown reports for those mechanics.
 use vfield::modes::experiment;
 use vfield::sim::Outcome;
 use vfield::{levels, validate, Rules};
 
 fn main() {
     if std::env::args().any(|a| a == "--steer") {
-        print!("{}", vfield::validate_steer::report(&levels::steer_levels()));
+        print!(
+            "{}",
+            vfield::validate_steer::report(&levels::steer_levels())
+        );
+        return;
+    }
+    if std::env::args().any(|a| a == "--combo") {
+        let two: Vec<_> = levels::combo_levels()
+            .into_iter()
+            .filter(|l| vfield::validate_combo::axis_of(l).is_some())
+            .collect();
+        print!("{}", vfield::validate_combo::report(&two));
+        let scouts: Vec<_> = levels::combo_levels()
+            .into_iter()
+            .filter(vfield::validate_scout::is_scout)
+            .collect();
+        print!("{}", vfield::validate_scout::markdown(&scouts));
         return;
     }
     if std::env::args().any(|a| a == "--sync") {
@@ -14,40 +30,82 @@ fn main() {
         return;
     }
     if std::env::args().any(|a| a == "--shape") {
-        print!("{}", vfield::validate_shape::report(&levels::shape_levels()));
+        print!(
+            "{}",
+            vfield::validate_shape::report(&levels::shape_levels())
+        );
         return;
     }
     if std::env::args().any(|a| a == "--survey") {
-        print!("{}", vfield::validate_survey::full_report(&levels::survey_levels(), &[levels::survey1_legacy()], 300));
+        print!(
+            "{}",
+            vfield::validate_survey::full_report(
+                &levels::survey_levels(),
+                &[levels::survey1_legacy()],
+                300
+            )
+        );
         return;
     }
     let detail = std::env::args().any(|a| a == "--detail");
     for l in levels::all() {
-        println!("{:<6} {:<22} solvable={:<5} {}", l.id, l.title, validate::solvable(&l), validate::summarize(&l));
+        println!(
+            "{:<6} {:<22} solvable={:<5} {}",
+            l.id,
+            l.title,
+            validate::solvable(&l),
+            validate::summarize(&l)
+        );
         if !detail {
             continue;
         }
         match &l.rules {
-            Rules::Position { slots, period, intensity } if period.is_none() && intensity.is_none() => {
+            Rules::Position {
+                slots,
+                period,
+                intensity,
+            } if period.is_none() && intensity.is_none() => {
                 let z = slots[0].zone.bbox();
                 for j in (0..13).rev() {
                     let mut row = String::new();
                     for i in 0..40 {
-                        let p = vfield::v2(z.min.x + z.width() * i as f64 / 39.0, z.min.y + z.height() * j as f64 / 12.0);
-                        if !slots[0].zone.contains(p) { row.push(' '); continue; }
+                        let p = vfield::v2(
+                            z.min.x + z.width() * i as f64 / 39.0,
+                            z.min.y + z.height() * j as f64 / 12.0,
+                        );
+                        if !slots[0].zone.contains(p) {
+                            row.push(' ');
+                            continue;
+                        }
                         let t = l.run(&l.field, p, 0.0);
-                        row.push(if l.reached_goal(&t, slots[0].goal) { '#' } else if matches!(t.outcome, Outcome::Hazard(_)) { 'x' } else { '.' });
+                        row.push(if l.reached_goal(&t, slots[0].goal) {
+                            '#'
+                        } else if matches!(t.outcome, Outcome::Hazard(_)) {
+                            'x'
+                        } else {
+                            '.'
+                        });
                     }
                     println!("    {}", row);
                 }
             }
             Rules::Tempo { .. } => {
                 let f = validate::tempo_success_by_phase(&l, 96);
-                println!("    {}", f.iter().map(|b| if *b { '#' } else { '.' }).collect::<String>());
+                println!(
+                    "    {}",
+                    f.iter()
+                        .map(|b| if *b { '#' } else { '.' })
+                        .collect::<String>()
+                );
             }
             Rules::Experiment { .. } => {
-                let s: String = experiment::sweep(&l, 100).iter().map(|(_, t)| match t.outcome {
-                    Outcome::Reached(e) => l.regions[e].label, _ => '.' }).collect();
+                let s: String = experiment::sweep(&l, 100)
+                    .iter()
+                    .map(|(_, t)| match t.outcome {
+                        Outcome::Reached(e) => l.regions[e].label,
+                        _ => '.',
+                    })
+                    .collect();
                 println!("    {}", s);
             }
             Rules::Predict { zone, .. } => {
@@ -55,9 +113,18 @@ fn main() {
                 for j in (0..9).rev() {
                     let mut row = String::new();
                     for i in 0..30 {
-                        let p = vfield::v2(b.min.x + b.width() * i as f64 / 29.0, b.min.y + b.height() * j as f64 / 8.0);
-                        if !zone.contains(p) { row.push(' '); continue; }
-                        row.push(match l.run(&l.field, p, 0.0).outcome { Outcome::Reached(e) => l.regions[e].label, _ => '.' });
+                        let p = vfield::v2(
+                            b.min.x + b.width() * i as f64 / 29.0,
+                            b.min.y + b.height() * j as f64 / 8.0,
+                        );
+                        if !zone.contains(p) {
+                            row.push(' ');
+                            continue;
+                        }
+                        row.push(match l.run(&l.field, p, 0.0).outcome {
+                            Outcome::Reached(e) => l.regions[e].label,
+                            _ => '.',
+                        });
                     }
                     println!("    {}", row);
                 }

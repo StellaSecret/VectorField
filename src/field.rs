@@ -77,11 +77,30 @@ pub enum Term {
     /// Uniform flow whose direction rotates in time.
     Rotating { speed: f64, omega: f64, phase: f64 },
     /// A radial/vortex source whose centre travels on a circle.
-    Orbiting { kind: SwirlKind, c: V2, orbit: f64, omega: f64, phase: f64, k: f64, soft: f64 },
+    Orbiting {
+        kind: SwirlKind,
+        c: V2,
+        orbit: f64,
+        omega: f64,
+        phase: f64,
+        k: f64,
+        soft: f64,
+    },
     /// inner * (offset + amp sin(omega t + phase)).
-    Modulated { inner: Box<Term>, offset: f64, amp: f64, omega: f64, phase: f64 },
+    Modulated {
+        inner: Box<Term>,
+        offset: f64,
+        amp: f64,
+        omega: f64,
+        phase: f64,
+    },
     /// Travelling shear wave: dir * amp * sin(wave . p - omega t).
-    Wave { dir: V2, amp: f64, wave: V2, omega: f64 },
+    Wave {
+        dir: V2,
+        amp: f64,
+        wave: V2,
+        omega: f64,
+    },
     /// A *local* radial push: v = k d exp(-|d|^2 / (2 sigma^2)). It peaks at |d| = sigma with speed
     /// k sigma e^(-1/2); it is still 45% of that at 2 sigma and 5.5% at 3 sigma, and below 0.25% from
     /// 4 sigma. Unlike `Radial` (a 1/r tail that is felt everywhere) it can only be detected by passing
@@ -109,7 +128,12 @@ pub enum SourceKind {
 }
 
 impl SourceKind {
-    pub const ALL: [SourceKind; 4] = [SourceKind::Repeller, SourceKind::Attractor, SourceKind::SwirlCcw, SourceKind::SwirlCw];
+    pub const ALL: [SourceKind; 4] = [
+        SourceKind::Repeller,
+        SourceKind::Attractor,
+        SourceKind::SwirlCcw,
+        SourceKind::SwirlCw,
+    ];
 
     /// The field term for a source of this kind with strength `k` (> 0) and width `sigma`.
     pub fn term(self, c: V2, k: f64, sigma: f64) -> Term {
@@ -175,19 +199,40 @@ impl Term {
                 let d = p - *c;
                 v2(-k * d.x, k * d.y)
             }
-            Term::Rotating { speed, omega, phase } => {
+            Term::Rotating {
+                speed,
+                omega,
+                phase,
+            } => {
                 let a = omega * t + phase;
                 v2(a.cos(), a.sin()) * *speed
             }
-            Term::Orbiting { kind, c, orbit, omega, phase, k, soft } => {
+            Term::Orbiting {
+                kind,
+                c,
+                orbit,
+                omega,
+                phase,
+                k,
+                soft,
+            } => {
                 let a = omega * t + phase;
                 let cc = *c + v2(a.cos(), a.sin()) * *orbit;
                 swirl(p - cc, *k, *soft, *kind == SwirlKind::Vortex)
             }
-            Term::Modulated { inner, offset, amp, omega, phase } => {
-                inner.eval(p, t) * (offset + amp * (omega * t + phase).sin())
-            }
-            Term::Wave { dir, amp, wave, omega } => *dir * (amp * (wave.dot(p) - omega * t).sin()),
+            Term::Modulated {
+                inner,
+                offset,
+                amp,
+                omega,
+                phase,
+            } => inner.eval(p, t) * (offset + amp * (omega * t + phase).sin()),
+            Term::Wave {
+                dir,
+                amp,
+                wave,
+                omega,
+            } => *dir * (amp * (wave.dot(p) - omega * t).sin()),
             Term::Gauss { c, k, sigma } => {
                 let d = p - *c;
                 d * (k * (-d.dot(d) / (2.0 * sigma * sigma)).exp())
@@ -223,16 +268,25 @@ impl Default for Field {
 
 impl Field {
     pub fn new() -> Self {
-        Field { layers: vec![], intensity: 1.0 }
+        Field {
+            layers: vec![],
+            intensity: 1.0,
+        }
     }
     /// Add a term that ignores the intensity knob.
     pub fn fixed(mut self, term: Term) -> Self {
-        self.layers.push(Layer { term, tunable: false });
+        self.layers.push(Layer {
+            term,
+            tunable: false,
+        });
         self
     }
     /// Add a term scaled by the intensity knob.
     pub fn tunable(mut self, term: Term) -> Self {
-        self.layers.push(Layer { term, tunable: true });
+        self.layers.push(Layer {
+            term,
+            tunable: true,
+        });
         self
     }
     pub fn eval(&self, p: V2, t: f64) -> V2 {

@@ -5,7 +5,10 @@ use vfield::sim::Outcome;
 use vfield::*;
 
 fn lv(id: &str) -> Level {
-    levels::all().into_iter().find(|l| l.id == id).unwrap_or_else(|| panic!("no level {id}"))
+    levels::all()
+        .into_iter()
+        .find(|l| l.id == id)
+        .unwrap_or_else(|| panic!("no level {id}"))
 }
 
 #[test]
@@ -15,11 +18,19 @@ fn level_ids_unique_and_complete() {
     ids.sort();
     ids.dedup();
     assert_eq!(ids.len(), all.len());
-    for c in [Chapter::Position, Chapter::Predict, Chapter::Tempo, Chapter::Experiment] {
+    for c in [
+        Chapter::Position,
+        Chapter::Predict,
+        Chapter::Tempo,
+        Chapter::Experiment,
+    ] {
         assert_eq!(levels::chapter(c).len(), 5, "{c:?} needs five levels");
     }
     assert!(levels::chapter(Chapter::Combo).len() >= 6);
-    assert!(all.iter().all(|l| !l.hints.is_empty()), "every level has a hint");
+    assert!(
+        all.iter().all(|l| !l.hints.is_empty()),
+        "every level has a hint"
+    );
 }
 
 #[test]
@@ -36,9 +47,13 @@ fn simulation_is_deterministic_for_every_level() {
         let start = match &l.rules {
             Rules::Position { slots, .. } => slots[0].zone.center(),
             Rules::Predict { zone, .. } => zone.center() + v2(0.3, 0.2),
-            Rules::Tempo { start, .. } | Rules::Experiment { start, .. } | Rules::Steer { start, .. } | Rules::Shape { start, .. } => *start,
+            Rules::Tempo { start, .. }
+            | Rules::Experiment { start, .. }
+            | Rules::Steer { start, .. }
+            | Rules::Shape { start, .. } => *start,
             Rules::Survey { free, .. } => *free,
             Rules::Synchronize { starts, .. } => starts[0],
+            Rules::Scout(r) => r.start,
         };
         let a = l.run(&l.field, start, 1.7);
         let b = l.run(&l.field, start, 1.7);
@@ -50,14 +65,21 @@ fn simulation_is_deterministic_for_every_level() {
 // ---------------- POSITION ----------------
 #[test]
 fn position_difficulty_curve_and_different_starts_differ() {
-    let f: Vec<f64> = levels::chapter(Chapter::Position).iter().map(|l| validate::position_win_fraction(l, 41)).collect();
+    let f: Vec<f64> = levels::chapter(Chapter::Position)
+        .iter()
+        .map(|l| validate::position_win_fraction(l, 41))
+        .collect();
     assert!(f[0] > 0.8, "level 1 broad: {}", f[0]);
     assert!((0.1..0.5).contains(&f[1]), "level 2: {}", f[1]);
     assert!((0.1..0.5).contains(&f[2]), "level 3 partial: {}", f[2]);
     assert!((0.1..0.5).contains(&f[3]), "level 4: {}", f[3]);
     assert!(f[4] > 0.02 && f[4] < 0.1, "level 5 precise: {}", f[4]);
     for l in &levels::chapter(Chapter::Position)[1..] {
-        assert!(validate::position_path_diversity(l, 21) >= 3, "{}: starts must give noticeably different paths", l.id);
+        assert!(
+            validate::position_path_diversity(l, 21) >= 3,
+            "{}: starts must give noticeably different paths",
+            l.id
+        );
     }
 }
 
@@ -90,7 +112,12 @@ fn predict_is_a_committed_forecast_not_parameter_search() {
     let mut g = PredictGame::new(lv("pre-3"));
     // Nothing to tune: no way to change start, field, or intensity through the mode API.
     assert!(g.commit().is_none(), "cannot commit without choosing");
-    let wrong = g.level.exits().into_iter().find(|e| *e != g.round().answer).unwrap();
+    let wrong = g
+        .level
+        .exits()
+        .into_iter()
+        .find(|e| *e != g.round().answer)
+        .unwrap();
     assert!(g.select(wrong));
     let r = g.commit().unwrap();
     assert!(!r.correct);
@@ -118,9 +145,20 @@ fn predict_random_guessing_rarely_passes() {
 #[test]
 fn predict_levels_have_balanced_answers_and_false_leads() {
     for l in levels::chapter(Chapter::Predict) {
-        let Rules::Predict { zone, .. } = &l.rules else { unreachable!() };
+        let Rules::Predict { zone, .. } = &l.rules else {
+            unreachable!()
+        };
         let pool = predict::candidate_pool(&l, zone);
-        let mut answers: Vec<_> = pool.iter().filter_map(|(_, t)| if let Outcome::Reached(e) = t.outcome { Some(e) } else { None }).collect();
+        let mut answers: Vec<_> = pool
+            .iter()
+            .filter_map(|(_, t)| {
+                if let Outcome::Reached(e) = t.outcome {
+                    Some(e)
+                } else {
+                    None
+                }
+            })
+            .collect();
         answers.sort();
         answers.dedup();
         assert!(answers.len() >= 3, "{}: answers {:?}", l.id, answers);
@@ -128,24 +166,41 @@ fn predict_levels_have_balanced_answers_and_false_leads() {
     }
     // "False Lead": for a good fraction of starts the exit is NOT the one the local arrow at the start points at.
     let l = lv("pre-4");
-    let Rules::Predict { zone, .. } = &l.rules else { unreachable!() };
+    let Rules::Predict { zone, .. } = &l.rules else {
+        unreachable!()
+    };
     let pool = predict::candidate_pool(&l, zone);
     let misled = pool
         .iter()
         .filter(|(p, t)| {
             let v = l.field.eval(*p, 0.0);
             let ray_y = p.y + v.y / v.x * (5.2 - p.x); // where a straight extrapolation of the local arrow lands
-            let naive = l.exits().into_iter().min_by(|a, b| (l.regions[*a].center.y - ray_y).abs().partial_cmp(&(l.regions[*b].center.y - ray_y).abs()).unwrap()).unwrap();
+            let naive = l
+                .exits()
+                .into_iter()
+                .min_by(|a, b| {
+                    (l.regions[*a].center.y - ray_y)
+                        .abs()
+                        .partial_cmp(&(l.regions[*b].center.y - ray_y).abs())
+                        .unwrap()
+                })
+                .unwrap();
             t.outcome != Outcome::Reached(naive)
         })
         .count();
-    assert!(misled as f64 / pool.len() as f64 > 0.5, "only {misled}/{} starts are misleading", pool.len());
+    assert!(
+        misled as f64 / pool.len() as f64 > 0.5,
+        "only {misled}/{} starts are misleading",
+        pool.len()
+    );
 }
 
 #[test]
 fn predict_partial_reveal_shows_prefix_only() {
     let g = PredictGame::new(lv("cmb-2"));
-    let Reveal::Partial(secs) = g.reveal_mode() else { panic!("expected partial reveal") };
+    let Reveal::Partial(secs) = g.reveal_mode() else {
+        panic!("expected partial reveal")
+    };
     let shown = g.round().traj.upto(secs);
     assert!(shown.len() < g.round().traj.points.len());
 }
@@ -170,20 +225,35 @@ fn tempo_windows_match_the_level_design() {
 #[test]
 fn tempo_changes_geometry_not_just_speed() {
     for l in levels::chapter(Chapter::Tempo) {
-        assert!(validate::tempo_geometry_spread(&l, 48) > 0.4, "{}: geometry must depend on phase", l.id);
+        assert!(
+            validate::tempo_geometry_spread(&l, 48) > 0.4,
+            "{}: geometry must depend on phase",
+            l.id
+        );
         // Speed-only fields would give the same *set of visited cells* regardless of phase. Check outcomes differ too.
         let flags = validate::tempo_success_by_phase(&l, 120);
-        assert!(flags.iter().any(|b| *b) && flags.iter().any(|b| !*b), "{}: phase must matter for success", l.id);
+        assert!(
+            flags.iter().any(|b| *b) && flags.iter().any(|b| !*b),
+            "{}: phase must matter for success",
+            l.id
+        );
     }
 }
 
 #[test]
 fn tempo_period_is_exact() {
     let l = lv("tem-5");
-    let Rules::Tempo { start, period, .. } = &l.rules else { unreachable!() };
+    let Rules::Tempo { start, period, .. } = &l.rules else {
+        unreachable!()
+    };
     let a = l.run(&l.field, *start, 3.0);
     let b = l.run(&l.field, *start, 3.0 + period);
-    let max = a.points.iter().zip(&b.points).map(|(p, q)| p.dist(*q)).fold(0.0, f64::max);
+    let max = a
+        .points
+        .iter()
+        .zip(&b.points)
+        .map(|(p, q)| p.dist(*q))
+        .fold(0.0, f64::max);
     assert!(max < 1e-6, "field must be periodic, deviation {max}");
 }
 
@@ -202,7 +272,10 @@ fn tempo_mode_only_exposes_time() {
 fn experiment_conclusions_are_checked_against_the_simulation() {
     let l = lv("exp-2");
     let mut g = ExperimentGame::new(l);
-    assert!(!g.conclude(Conclusion::Estimates(vec![1.48])).correct, "no evidence yet");
+    assert!(
+        !g.conclude(Conclusion::Estimates(vec![1.48])).correct,
+        "no evidence yet"
+    );
     for i in [0.0, 1.0, 2.0, 3.0] {
         g.run(i).unwrap();
     }
@@ -217,7 +290,10 @@ fn experiment_conclusions_are_checked_against_the_simulation() {
 fn experiment_requires_evidence_so_guessing_cannot_win() {
     let mut g = ExperimentGame::new(lv("exp-1"));
     for choice in 0..3 {
-        assert!(!g.conclude(Conclusion::Choice(choice)).correct, "no free guesses before running anything");
+        assert!(
+            !g.conclude(Conclusion::Choice(choice)).correct,
+            "no free guesses before running anything"
+        );
     }
     g.run(0.3).unwrap();
     g.run(0.9).unwrap();
@@ -232,7 +308,10 @@ fn experiment_rig_cap_forces_extrapolation() {
     assert!(g.run(6.2).is_err(), "cannot simply test the target");
     assert!(g.run(4.0).is_ok());
     assert!(g.run(4.01).is_err());
-    assert!(matches!(experiment::truth(&g.level), Some(experiment::Truth::ExitAt(_))));
+    assert!(matches!(
+        experiment::truth(&g.level),
+        Some(experiment::Truth::ExitAt(_))
+    ));
 }
 
 #[test]
@@ -240,7 +319,9 @@ fn experiment_truths_are_robust_and_specific() {
     use experiment::{probe, truth, Truth};
     // exp-4: the answer must not sit on a boundary between outcomes.
     let l = lv("exp-4");
-    let Some(Truth::ExitAt(e)) = truth(&l) else { panic!() };
+    let Some(Truth::ExitAt(e)) = truth(&l) else {
+        panic!()
+    };
     for d in [-0.15, 0.15] {
         let t = probe(&l, 6.2 + d);
         assert_eq!(t.outcome, e.map_or(Outcome::Boundary, Outcome::Reached));
@@ -251,7 +332,9 @@ fn experiment_truths_are_robust_and_specific() {
     assert_eq!(truth(&lv("exp-1")), Some(Truth::Choice(0)));
     // thresholds are single transitions with a tolerance bigger than float noise but smaller than the range.
     for id in ["exp-2", "cmb-4", "exp-5"] {
-        let Some(Truth::Estimates(v)) = truth(&lv(id)) else { panic!("{id}") };
+        let Some(Truth::Estimates(v)) = truth(&lv(id)) else {
+            panic!("{id}")
+        };
         assert!(!v.is_empty() && v.iter().all(|x| *x > 0.0));
     }
 }
@@ -275,13 +358,20 @@ fn mechanics_expose_different_controls() {
     // The decision each mode lets the player make, as data. If two mechanics ever expose the same control
     // surface, this test should be reread before more content is added.
     let controls = |l: &Level| match &l.rules {
-        Rules::Position { period: None, intensity: None, .. } => "release position",
+        Rules::Position {
+            period: None,
+            intensity: None,
+            ..
+        } => "release position",
         Rules::Predict { .. } => "committed answer",
         Rules::Tempo { .. } => "launch phase",
         Rules::Experiment { .. } => "field parameter -> rule",
         _ => "combination",
     };
-    let set: std::collections::HashSet<_> = [lv("pos-1"), lv("pre-1"), lv("tem-1"), lv("exp-1")].iter().map(controls).collect();
+    let set: std::collections::HashSet<_> = [lv("pos-1"), lv("pre-1"), lv("tem-1"), lv("exp-1")]
+        .iter()
+        .map(controls)
+        .collect();
     assert_eq!(set.len(), 4);
 }
 
@@ -290,7 +380,10 @@ fn combination_levels_each_add_exactly_one_idea() {
     // cmb-1 gate really restricts Position (fewer winners than the same level without the gate)
     let mut no_gate = lv("cmb-1");
     no_gate.regions.truncate(1);
-    assert!(validate::position_win_fraction(&lv("cmb-1"), 41) < validate::position_win_fraction(&no_gate, 41) * 0.6);
+    assert!(
+        validate::position_win_fraction(&lv("cmb-1"), 41)
+            < validate::position_win_fraction(&no_gate, 41) * 0.6
+    );
     // cmb-3 hazard really removes successful launch phases
     let mut no_haz = lv("cmb-3");
     no_haz.regions.truncate(1);

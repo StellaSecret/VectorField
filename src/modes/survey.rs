@@ -72,11 +72,52 @@ pub struct SurveySpec {
 
 impl SurveySpec {
     pub fn from_level(l: &Level) -> SurveySpec {
-        let Rules::Survey { zone, free, scouts, k, sigma, tol, rays, band, preview, pool, kinds, partners, goal } = &l.rules else { panic!("not a Survey level") };
-        assert!(!pool.is_empty(), "a Survey level needs at least one hidden position");
+        let Rules::Survey {
+            zone,
+            free,
+            scouts,
+            k,
+            sigma,
+            tol,
+            rays,
+            band,
+            preview,
+            pool,
+            kinds,
+            partners,
+            goal,
+        } = &l.rules
+        else {
+            panic!("not a Survey level")
+        };
+        assert!(
+            !pool.is_empty(),
+            "a Survey level needs at least one hidden position"
+        );
         assert_eq!(pool.len(), kinds.len(), "one kind per hidden position");
-        assert_eq!(pool.len(), partners.len(), "one partner (or none) per hidden position");
-        SurveySpec { field: l.field.clone(), cfg: l.sim_config(), zone: zone.clone(), free: *free, budget: *scouts, k: *k, sigma: *sigma, tol: *tol, rays: *rays, band: *band, preview: *preview, pool: pool.clone(), kinds: kinds.clone(), partners: partners.clone(), goal: *goal, seed: l.seed }
+        assert_eq!(
+            pool.len(),
+            partners.len(),
+            "one partner (or none) per hidden position"
+        );
+        SurveySpec {
+            field: l.field.clone(),
+            cfg: l.sim_config(),
+            zone: zone.clone(),
+            free: *free,
+            budget: *scouts,
+            k: *k,
+            sigma: *sigma,
+            tol: *tol,
+            rays: *rays,
+            band: *band,
+            preview: *preview,
+            pool: pool.clone(),
+            kinds: kinds.clone(),
+            partners: partners.clone(),
+            goal: *goal,
+            seed: l.seed,
+        }
     }
 
     /// The charted field plus the hidden source at `source`.
@@ -86,7 +127,9 @@ impl SurveySpec {
 
     /// The charted field plus a hidden source of `kind` at `source`.
     pub fn true_field_kind(&self, source: V2, kind: SourceKind) -> Field {
-        self.field.clone().fixed(kind.term(source, self.k, self.sigma))
+        self.field
+            .clone()
+            .fixed(kind.term(source, self.k, self.sigma))
     }
 
     /// A scout released at `start` under the true field (a repeller at `source`). Deterministic.
@@ -96,7 +139,13 @@ impl SurveySpec {
 
     /// A scout released at `start` with a source of `kind` at `source`.
     pub fn fly_kind(&self, source: V2, kind: SourceKind, start: V2) -> Trajectory {
-        simulate(&self.true_field_kind(source, kind), start, 0.0, &[], &self.cfg)
+        simulate(
+            &self.true_field_kind(source, kind),
+            start,
+            0.0,
+            &[],
+            &self.cfg,
+        )
     }
 
     /// A scout released at `start` with sources of `kind` at every point of `sources` (one or two).
@@ -174,17 +223,27 @@ impl SurveySpec {
 
     /// `push_samples` with explicit spacing and strength threshold (tests, experiments).
     pub fn push_samples_at(&self, traj: &Trajectory, every: f64, min: f64) -> Vec<(V2, V2)> {
-        self.push_all(traj, every).into_iter().filter(|(_, push)| push.len() >= min).collect()
+        self.push_all(traj, every)
+            .into_iter()
+            .filter(|(_, push)| push.len() >= min)
+            .collect()
     }
 
     /// Every sample of the measured push along a trail, strong or not (see `push_samples`).
     pub fn push_all(&self, traj: &Trajectory, every: f64) -> Vec<(V2, V2)> {
-        let (p, k, h) = (&traj.points, ((every / traj.dt).round() as usize).max(1), ((0.1 / traj.dt).round() as usize).max(1));
+        let (p, k, h) = (
+            &traj.points,
+            ((every / traj.dt).round() as usize).max(1),
+            ((0.1 / traj.dt).round() as usize).max(1),
+        );
         let mut out = vec![];
         let mut i = h;
         while i + h < p.len() {
             let v = (p[i + h] - p[i - h]) * (1.0 / (2.0 * h as f64 * traj.dt));
-            out.push((p[i], v - self.field.eval(p[i], traj.t0 + i as f64 * traj.dt)));
+            out.push((
+                p[i],
+                v - self.field.eval(p[i], traj.t0 + i as f64 * traj.dt),
+            ));
             i += k;
         }
         out
@@ -200,7 +259,11 @@ impl SurveySpec {
         let (mut lo, mut hi) = (self.sigma, 12.0 * self.sigma);
         for _ in 0..60 {
             let mid = 0.5 * (lo + hi);
-            if push(mid) >= PUSH_MIN { lo = mid } else { hi = mid }
+            if push(mid) >= PUSH_MIN {
+                lo = mid
+            } else {
+                hi = mid
+            }
         }
         lo
     }
@@ -217,7 +280,9 @@ impl SurveySpec {
         let all = self.push_all(traj, CLEARED_EVERY);
         let quiet = |i: usize| all[i].1.len() < PUSH_MIN;
         let centres = (0..all.len())
-            .filter(|&i| quiet(i) && (i == 0 || quiet(i - 1)) && (i + 1 == all.len() || quiet(i + 1)))
+            .filter(|&i| {
+                quiet(i) && (i == 0 || quiet(i - 1)) && (i + 1 == all.len() || quiet(i + 1))
+            })
             .map(|i| all[i].0)
             .collect();
         (centres, (self.sense_radius() - CLEARED_MARGIN).max(0.0))
@@ -230,7 +295,10 @@ impl SurveySpec {
         if !self.rays {
             return vec![];
         }
-        self.push_samples_at(traj, 2.0 * PUSH_EVERY, PUSH_MIN).into_iter().map(|(p, push)| (p, push * (-1.0 / push.len()))).collect()
+        self.push_samples_at(traj, 2.0 * PUSH_EVERY, PUSH_MIN)
+            .into_iter()
+            .map(|(p, push)| (p, push * (-1.0 / push.len())))
+            .collect()
     }
 
     /// Where a scout released at `start` would fly under the *charted* field alone, with no hidden source.
@@ -246,7 +314,11 @@ impl SurveySpec {
         let straight = markers[0].dist(sources[0]).max(markers[1].dist(sources[1]));
         let swapped = markers[0].dist(sources[1]).max(markers[1].dist(sources[0]));
         let distance = straight.min(swapped);
-        Verdict { distance, kind_ok: true, ok: distance <= self.tol }
+        Verdict {
+            distance,
+            kind_ok: true,
+            ok: distance <= self.tol,
+        }
     }
 
     /// Position only (kind not considered).
@@ -255,10 +327,20 @@ impl SurveySpec {
     }
 
     /// Position and kind: found only if the marker is within `tol` of the source *and* names the right kind.
-    pub fn judge_typed(&self, source: V2, kind: SourceKind, marker: V2, marker_kind: SourceKind) -> Verdict {
+    pub fn judge_typed(
+        &self,
+        source: V2,
+        kind: SourceKind,
+        marker: V2,
+        marker_kind: SourceKind,
+    ) -> Verdict {
         let distance = marker.dist(source);
         let kind_ok = kind == marker_kind;
-        Verdict { distance, kind_ok, ok: distance <= self.tol && kind_ok }
+        Verdict {
+            distance,
+            kind_ok,
+            ok: distance <= self.tol && kind_ok,
+        }
     }
 }
 
@@ -318,8 +400,25 @@ impl Round {
         let kind = spec.kinds[index];
         let partner = spec.partners[index];
         let all: Vec<V2> = std::iter::once(source).chain(partner).collect();
-        let free = Scout { start: spec.free, traj: spec.fly_sources(&all, kind, spec.free), free: true };
-        Round { attempt, scouts: vec![free], marker: None, verdict: None, test: None, tests_used: 0, marker_kind: SourceKind::Repeller, marker2: None, index, source, partner, kind }
+        let free = Scout {
+            start: spec.free,
+            traj: spec.fly_sources(&all, kind, spec.free),
+            free: true,
+        };
+        Round {
+            attempt,
+            scouts: vec![free],
+            marker: None,
+            verdict: None,
+            test: None,
+            tests_used: 0,
+            marker_kind: SourceKind::Repeller,
+            marker2: None,
+            index,
+            source,
+            partner,
+            kind,
+        }
     }
     /// Every hidden source of this round (one or two). For tests, validators and tools only, like `truth`.
     pub fn truth_sources(&self) -> Vec<V2> {
@@ -332,7 +431,9 @@ impl Round {
     /// After a commit: did a marker sit *between* the two sources (nearer their midpoint than to either, and not
     /// within the tolerance of either)? That is what two sources look like from far away: one, in the middle.
     pub fn marker_between(&self, tol: f64) -> bool {
-        let (Some(b), Some(_)) = (self.partner, self.verdict) else { return false };
+        let (Some(b), Some(_)) = (self.partner, self.verdict) else {
+            return false;
+        };
         let mid = (self.source + b) * 0.5;
         [self.marker, self.marker2].into_iter().flatten().any(|m| {
             let (da, db, dm) = (m.dist(self.source), m.dist(b), m.dist(mid));
@@ -416,9 +517,16 @@ pub struct SurveyGame {
 /// `seen` is the pool index of every earlier attempt, oldest first.
 fn pick_index(spec: &SurveySpec, seen: &[usize], found: &[bool; 3], attempt: usize) -> usize {
     if spec.goal == SurveyGoal::EachKind {
-        if let Some(fam) = (0..3).find(|f| !found[*f] && spec.kinds.iter().any(|k| k.family() == *f)) {
-            let of_family: Vec<usize> = (0..spec.pool.len()).filter(|&i| spec.kinds[i].family() == fam).collect();
-            let tried = seen.iter().filter(|&&i| spec.kinds[i].family() == fam).count();
+        if let Some(fam) =
+            (0..3).find(|f| !found[*f] && spec.kinds.iter().any(|k| k.family() == *f))
+        {
+            let of_family: Vec<usize> = (0..spec.pool.len())
+                .filter(|&i| spec.kinds[i].family() == fam)
+                .collect();
+            let tried = seen
+                .iter()
+                .filter(|&&i| spec.kinds[i].family() == fam)
+                .count();
             return of_family[tried % of_family.len()];
         }
     }
@@ -429,12 +537,22 @@ impl SurveyGame {
     pub fn new(level: Level) -> SurveyGame {
         let spec = SurveySpec::from_level(&level);
         let round = Round::new(&spec, 0, pick_index(&spec, &[], &[false; 3], 0));
-        SurveyGame { level, spec, round, history: vec![], won: false, found: [false; 3], finds: 0 }
+        SurveyGame {
+            level,
+            spec,
+            round,
+            history: vec![],
+            won: false,
+            found: [false; 3],
+            finds: 0,
+        }
     }
 
     /// The families this level asks for: those that occur among its sources.
     pub fn families_needed(&self) -> Vec<usize> {
-        (0..3).filter(|f| self.spec.kinds.iter().any(|k| k.family() == *f)).collect()
+        (0..3)
+            .filter(|f| self.spec.kinds.iter().any(|k| k.family() == *f))
+            .collect()
     }
 
     /// Is the level done? By its goal: a number of attempts found, or one of each kind found.
@@ -474,9 +592,17 @@ impl SurveyGame {
             return Err(TestError::Finished);
         }
         let m = self.round.marker.ok_or(TestError::NoMarker)?;
-        let m2 = if self.round.partner.is_some() { Some(self.round.marker2.ok_or(TestError::NoSecondMarker)?) } else { None };
+        let m2 = if self.round.partner.is_some() {
+            Some(self.round.marker2.ok_or(TestError::NoSecondMarker)?)
+        } else {
+            None
+        };
         if let Some(t) = &self.round.test {
-            if t.at == m && t.at2 == m2 && t.kind == self.round.marker_kind && t.trails.len() == self.round.scouts.len() {
+            if t.at == m
+                && t.at2 == m2
+                && t.kind == self.round.marker_kind
+                && t.trails.len() == self.round.scouts.len()
+            {
                 return Ok(false);
             }
         }
@@ -485,8 +611,18 @@ impl SurveyGame {
         }
         let kind = self.round.marker_kind;
         let hypothesis: Vec<V2> = std::iter::once(m).chain(m2).collect();
-        let trails = self.round.scouts.iter().map(|s| self.spec.fly_sources(&hypothesis, kind, s.start)).collect();
-        self.round.test = Some(EstimateTest { at: m, at2: m2, kind, trails });
+        let trails = self
+            .round
+            .scouts
+            .iter()
+            .map(|s| self.spec.fly_sources(&hypothesis, kind, s.start))
+            .collect();
+        self.round.test = Some(EstimateTest {
+            at: m,
+            at2: m2,
+            kind,
+            trails,
+        });
         self.round.tests_used += 1;
         Ok(true)
     }
@@ -507,11 +643,22 @@ impl SurveyGame {
         if !self.spec.zone.contains(p) {
             return Err(PlaceError::OutOfZone);
         }
-        if self.round.scouts.iter().any(|s| s.start.dist(p) < MIN_SCOUT_SEPARATION) {
+        if self
+            .round
+            .scouts
+            .iter()
+            .any(|s| s.start.dist(p) < MIN_SCOUT_SEPARATION)
+        {
             return Err(PlaceError::Duplicate);
         }
-        let traj = self.spec.fly_sources(&self.round.truth_sources(), self.round.kind, p);
-        self.round.scouts.push(Scout { start: p, traj, free: false });
+        let traj = self
+            .spec
+            .fly_sources(&self.round.truth_sources(), self.round.kind, p);
+        self.round.scouts.push(Scout {
+            start: p,
+            traj,
+            free: false,
+        });
         Ok(self.round.scouts.last().unwrap())
     }
 
@@ -577,9 +724,15 @@ impl SurveyGame {
         let v = match self.round.partner {
             Some(partner) => {
                 let marker2 = self.round.marker2.ok_or(CommitError::NoSecondMarker)?;
-                self.spec.judge_pair([self.round.source, partner], [marker, marker2])
+                self.spec
+                    .judge_pair([self.round.source, partner], [marker, marker2])
             }
-            None => self.spec.judge_typed(self.round.source, self.round.kind, marker, self.round.marker_kind),
+            None => self.spec.judge_typed(
+                self.round.source,
+                self.round.kind,
+                marker,
+                self.round.marker_kind,
+            ),
         };
         self.round.verdict = Some(v);
         if v.ok {
@@ -598,7 +751,11 @@ impl SurveyGame {
         let attempt = self.round.attempt + 1;
         let mut seen: Vec<usize> = self.history.iter().map(|r| r.index).collect();
         seen.push(self.round.index);
-        let next = Round::new(&self.spec, attempt, pick_index(&self.spec, &seen, &self.found, attempt));
+        let next = Round::new(
+            &self.spec,
+            attempt,
+            pick_index(&self.spec, &seen, &self.found, attempt),
+        );
         let done = std::mem::replace(&mut self.round, next);
         self.history.push(done);
         Ok(())

@@ -18,8 +18,10 @@
 //!   Completed        `Phase::Completed(End)`: frozen.
 //!   Retry            `retry()` restores the exact initial state and keeps the finished run as a ghost.
 use crate::field::{Field, V2};
-use crate::level::{GustDirs, Level, Rules};
-use crate::sim::{advance_beat, Outcome, Region, SimConfig};
+
+use crate::level::{GustDirs, Level, Rules, SteerSources};
+use crate::modes::shape::{PlaceError, Source, MIN_SEPARATION};
+use crate::sim::{advance_beat, Outcome, Rect, Region, RegionKind, SimConfig};
 
 /// Number of earlier attempts kept as faint ghosts (the current run is never truncated).
 pub const MAX_GHOSTS: usize = 3;
@@ -105,7 +107,10 @@ impl Run {
         v
     }
     pub fn gusts_used(&self) -> usize {
-        self.beats.iter().filter(|b| matches!(b.action, Action::Gust(_))).count()
+        self.beats
+            .iter()
+            .filter(|b| matches!(b.action, Action::Gust(_)))
+            .count()
     }
 }
 
@@ -123,11 +128,36 @@ pub struct SteerSpec {
     pub beat_time: f64,
     pub goal: usize,
     pub gates: Vec<usize>,
+    /// Combination levels: the field's period when the player also picks the launch phase.
+    pub period: Option<f64>,
+    /// Field clock at beat 0 (the chosen launch phase; 0 when the level has no `period`).
+    pub clock0: f64,
+    /// Combination levels: the zone the player may choose the start point in (`start` is the default).
+    pub start_zone: Option<Rect>,
+    /// Combination levels: the sources the player may place, and the ones placed (the field already includes them).
+    pub source_rules: Option<SteerSources>,
+    pub sources: Vec<Source>,
+    /// The level's own field, without sources: `field` is this plus one steady term per placed source.
+    pub field0: Field,
 }
 
 impl SteerSpec {
     pub fn from_level(l: &Level) -> SteerSpec {
-        let Rules::Steer { start, beats, gust_budget, gust_strength, dirs, beat_time, goal } = &l.rules else { panic!("not a Steer level") };
+        let Rules::Steer {
+            start,
+            beats,
+            gust_budget,
+            gust_strength,
+            dirs,
+            beat_time,
+            goal,
+            period,
+            start_zone,
+            sources,
+        } = &l.rules
+        else {
+            panic!("not a Steer level")
+        };
         SteerSpec {
             field: l.field.clone(),
             regions: l.regions.clone(),
@@ -140,10 +170,107 @@ impl SteerSpec {
             beat_time: *beat_time,
             goal: *goal,
             gates: l.gates(),
+            period: *period,
+            clock0: 0.0,
+            start_zone: *start_zone,
+            source_rules: sources.clone(),
+            sources: vec![],
+            field0: l.field.clone(),
         }
     }
+    /// Where `p` would be refused for a new source, ignoring the other sources.
+    pub fn site_error(&self, p: V2) -> Option<PlaceError> {
+        let Some(r) = &self.source_rules else {
+            return Some(PlaceError::KindUnavailable);
+        };
+        if !r.zones.iter().any(|z| z.contains(p)) {
+            return Some(PlaceError::OutsideZone);
+        }
+        for g in &self.regions {
+            if matches!(g.kind, RegionKind::Target | RegionKind::Hazard)
+                && p.dist(g.center) <= g.radius
+            {
+                return Some(PlaceError::OnRegion(g.label));
+            }
+        }
+        None
+    }
+    /// Every legal site on a lattice of spacing `step`.
+    pub fn sites(&self, step: f64) -> Vec<V2> {
+        let mut out: Vec<V2> = vec![];
+        if let Some(r) = &self.source_rules {
+            for z in &r.zones {
+                let b = z.bbox();
+                let (nx, ny) = (
+                    (b.width() / step).floor() as i64,
+                    (b.height() / step).floor() as i64,
+                );
+                for i in 0..=nx {
+                    for j in 0..=ny {
+                        let p = V2 {
+                            x: b.min.x + i as f64 * step,
+                            y: b.min.y + j as f64 * step,
+                        };
+                        if self.site_error(p).is_none() && !out.iter().any(|q| q.dist(p) < 1e-9) {
+                            out.push(p);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+    /// The same level with exactly these sources placed (the field is the level's own plus one steady term each).
+    /// A level that offers no sources ignores them.
+    pub fn with_sources(&self, sources: &[Source]) -> SteerSpec {
+        let mut s = self.clone();
+        if let Some(r) = &self.source_rules {
+            let mut f = self.field0.clone();
+            for q in sources {
+                f = f.fixed(q.kind.term(q.pos, r.k, r.sigma));
+            }
+            s.field = f;
+            s.sources = sources.to_vec();
+        }
+        s
+    }
+    /// Is `p` somewhere the run may start: inside the zone and not inside any region?
+    pub fn start_legal(&self, p: V2) -> bool {
+        match self.start_zone {
+            Some(z) => {
+                p.x >= z.min.x - 1e-9
+                    && p.x <= z.max.x + 1e-9
+                    && p.y >= z.min.y - 1e-9
+                    && p.y <= z.max.y + 1e-9
+                    && self.regions.iter().all(|r| r.center.dist(p) > r.radius)
+            }
+            None => false,
+        }
+    }
+    /// The same level started from `p` (ignored unless the level has a start zone and `p` is legal).
+    pub fn with_start(&self, p: V2) -> SteerSpec {
+        let mut s = self.clone();
+        if self.start_legal(p) {
+            s.start = p;
+        }
+        s
+    }
+    /// The same level run from field clock `phase` (wrapped into the period). A level without a period ignores it.
+    pub fn with_clock(&self, phase: f64) -> SteerSpec {
+        let mut s = self.clone();
+        if let Some(p) = self.period {
+            s.clock0 = phase.rem_euclid(p);
+        }
+        s
+    }
     pub fn initial(&self) -> State {
-        State { pos: self.start, beat: 0, gusts_left: self.budget, gates: vec![], end: None }
+        State {
+            pos: self.start,
+            beat: 0,
+            gusts_left: self.budget,
+            gates: vec![],
+            end: None,
+        }
     }
     /// Gust velocity vector for an action.
     pub fn gust(&self, a: Action) -> V2 {
@@ -154,7 +281,8 @@ impl SteerSpec {
     }
     /// Natural field velocity at a position during beat `beat`.
     pub fn field_velocity(&self, p: V2, beat: usize) -> V2 {
-        self.field.eval(p, beat as f64 * self.beat_time)
+        self.field
+            .eval(p, self.clock0 + beat as f64 * self.beat_time)
     }
     pub fn legal(&self, s: &State, a: Action) -> Result<(), ChooseError> {
         if s.end.is_some() {
@@ -171,9 +299,18 @@ impl SteerSpec {
     pub fn advance(&self, s: &State, a: Action) -> Result<Beat, ChooseError> {
         self.legal(s, a)?;
         let u = self.gust(a);
-        let t = s.beat as f64 * self.beat_time;
+        let t = self.clock0 + s.beat as f64 * self.beat_time;
         let mut gates = s.gates.clone();
-        let (points, outcome) = advance_beat(&self.field, s.pos, t, u, self.beat_time, &self.regions, &self.cfg, &mut gates);
+        let (points, outcome) = advance_beat(
+            &self.field,
+            s.pos,
+            t,
+            u,
+            self.beat_time,
+            &self.regions,
+            &self.cfg,
+            &mut gates,
+        );
         let to = points.last().copied().unwrap_or(s.pos);
         let beat = s.beat + 1;
         let gusts_left = s.gusts_left - usize::from(matches!(a, Action::Gust(_)));
@@ -189,11 +326,26 @@ impl SteerSpec {
             Some(Outcome::Hazard(_)) => Some(End::Failed(FailReason::Hazard)),
             Some(Outcome::Boundary) => Some(End::Failed(FailReason::Boundary)),
             Some(Outcome::Invalid) => Some(End::Failed(FailReason::Invalid)),
-            Some(Outcome::Timeout) | Some(Outcome::Stalled) => Some(End::Failed(FailReason::BeatsExhausted)),
+            Some(Outcome::Timeout) | Some(Outcome::Stalled) => {
+                Some(End::Failed(FailReason::BeatsExhausted))
+            }
             None if beat >= self.beats => Some(End::Failed(FailReason::BeatsExhausted)),
             None => None,
         };
-        Ok(Beat { action: a, from: s.pos, field_v: self.field_velocity(s.pos, s.beat), gust: u, points, next: State { pos: to, beat, gusts_left, gates, end } })
+        Ok(Beat {
+            action: a,
+            from: s.pos,
+            field_v: self.field_velocity(s.pos, s.beat),
+            gust: u,
+            points,
+            next: State {
+                pos: to,
+                beat,
+                gusts_left,
+                gates,
+                end,
+            },
+        })
     }
     /// Re-simulate a recorded action sequence from the initial state (replay).
     pub fn replay(&self, actions: &[Action]) -> Result<Run, ChooseError> {
@@ -204,7 +356,11 @@ impl SteerSpec {
             s = b.next.clone();
             beats.push(b);
         }
-        Ok(Run { start: self.start, beats, end: s.end })
+        Ok(Run {
+            start: self.start,
+            beats,
+            end: s.end,
+        })
     }
 }
 
@@ -233,7 +389,100 @@ impl SteerGame {
     pub fn new(level: Level) -> SteerGame {
         let spec = SteerSpec::from_level(&level);
         let state = spec.initial();
-        SteerGame { level, spec, state, phase: Phase::Ready, history: vec![], pending: None, ghosts: vec![], attempts: 0, won: false }
+        SteerGame {
+            level,
+            spec,
+            state,
+            phase: Phase::Ready,
+            history: vec![],
+            pending: None,
+            ghosts: vec![],
+            attempts: 0,
+            won: false,
+        }
+    }
+    /// Choose the launch phase. Only before the first beat, and only in a level that has a period.
+    pub fn set_clock(&mut self, phase: f64) -> bool {
+        if self.spec.period.is_none() || self.phase != Phase::Ready {
+            return false;
+        }
+        self.spec = self.spec.with_clock(phase);
+        true
+    }
+    pub fn clock(&self) -> f64 {
+        self.spec.clock0
+    }
+    /// Choose the start point. Only before the first beat, only in a level with a start zone, and only at a legal point.
+    pub fn set_start(&mut self, p: V2) -> bool {
+        if self.spec.start_zone.is_none() || self.phase != Phase::Ready || !self.spec.start_legal(p)
+        {
+            return false;
+        }
+        self.spec = self.spec.with_start(p);
+        self.state = self.spec.initial();
+        true
+    }
+    pub fn start(&self) -> V2 {
+        self.spec.start
+    }
+    // ---- sources (levels with `sources` only): placed before the first beat, then locked for the run
+    pub fn sources(&self) -> &[Source] {
+        &self.spec.sources
+    }
+    fn sources_editable(&self) -> bool {
+        self.spec.source_rules.is_some() && self.phase == Phase::Ready
+    }
+    /// Place a source. Refused after the first beat, outside the placement area, on a region, too close to another
+    /// source, with the limit reached, or of a kind the level does not offer.
+    pub fn place_source(
+        &mut self,
+        kind: crate::field::SourceKind,
+        pos: V2,
+    ) -> Result<(), PlaceError> {
+        let Some(r) = self.spec.source_rules.clone() else {
+            return Err(PlaceError::KindUnavailable);
+        };
+        if !self.sources_editable() {
+            return Err(PlaceError::Full);
+        }
+        if !r.kinds.contains(&kind) {
+            return Err(PlaceError::KindUnavailable);
+        }
+        if let Some(e) = self.spec.site_error(pos) {
+            return Err(e);
+        }
+        if self
+            .spec
+            .sources
+            .iter()
+            .any(|s| s.pos.dist(pos) < MIN_SEPARATION)
+        {
+            return Err(PlaceError::TooClose);
+        }
+        if self.spec.sources.len() >= r.max {
+            return Err(PlaceError::Full);
+        }
+        let mut v = self.spec.sources.clone();
+        v.push(Source { kind, pos });
+        self.spec = self.spec.with_sources(&v);
+        Ok(())
+    }
+    /// Remove source `i`. Only before the first beat.
+    pub fn remove_source(&mut self, i: usize) -> bool {
+        if !self.sources_editable() || i >= self.spec.sources.len() {
+            return false;
+        }
+        let mut v = self.spec.sources.clone();
+        v.remove(i);
+        self.spec = self.spec.with_sources(&v);
+        true
+    }
+    pub fn clear_sources(&mut self) -> bool {
+        if !self.sources_editable() || self.spec.sources.is_empty() {
+            return false;
+        }
+        self.spec = self.spec.with_sources(&[]);
+        true
     }
     pub fn accepting_input(&self) -> bool {
         matches!(self.phase, Phase::Ready | Phase::Awaiting)
@@ -261,7 +510,11 @@ impl SteerGame {
     /// Commit a decision and start advancing one beat. Rejected while a beat is in progress.
     pub fn choose(&mut self, a: Action) -> Result<(), ChooseError> {
         if !self.accepting_input() {
-            return Err(if matches!(self.phase, Phase::Completed(_)) { ChooseError::Finished } else { ChooseError::Busy });
+            return Err(if matches!(self.phase, Phase::Completed(_)) {
+                ChooseError::Finished
+            } else {
+                ChooseError::Busy
+            });
         }
         let beat = self.spec.advance(&self.state, a)?;
         // The budget is spent the moment the decision is committed, so the HUD shows it at once.
@@ -303,7 +556,11 @@ impl SteerGame {
         Ok(self.finish_beat())
     }
     pub fn run(&self) -> Run {
-        Run { start: self.spec.start, beats: self.history.clone(), end: self.state.end }
+        Run {
+            start: self.spec.start,
+            beats: self.history.clone(),
+            end: self.state.end,
+        }
     }
     /// Restart from the exact initial state. A *completed* run becomes a ghost.
     pub fn retry(&mut self) -> Result<(), ChooseError> {

@@ -1,14 +1,17 @@
 //! Deterministic RK4 simulation engine. Independent of rendering and UI.
 use crate::field::{Field, V2};
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
     pub min: V2,
     pub max: V2,
 }
 impl Rect {
     pub const fn new(x0: f64, y0: f64, x1: f64, y1: f64) -> Rect {
-        Rect { min: V2 { x: x0, y: y0 }, max: V2 { x: x1, y: y1 } }
+        Rect {
+            min: V2 { x: x0, y: y0 },
+            max: V2 { x: x1, y: y1 },
+        }
     }
     pub fn contains(&self, p: V2) -> bool {
         p.x >= self.min.x && p.x <= self.max.x && p.y >= self.min.y && p.y <= self.max.y
@@ -20,7 +23,10 @@ impl Rect {
         self.max.y - self.min.y
     }
     pub fn clamp(&self, p: V2) -> V2 {
-        V2 { x: p.x.clamp(self.min.x, self.max.x), y: p.y.clamp(self.min.y, self.max.y) }
+        V2 {
+            x: p.x.clamp(self.min.x, self.max.x),
+            y: p.y.clamp(self.min.y, self.max.y),
+        }
     }
 }
 
@@ -45,7 +51,12 @@ pub struct Region {
 }
 impl Region {
     pub fn new(kind: RegionKind, x: f64, y: f64, radius: f64, label: char) -> Region {
-        Region { kind, center: V2 { x, y }, radius, label }
+        Region {
+            kind,
+            center: V2 { x, y },
+            radius,
+            label,
+        }
     }
     pub fn target(x: f64, y: f64, r: f64) -> Region {
         Region::new(RegionKind::Target, x, y, r, 'T')
@@ -88,7 +99,14 @@ pub struct SimConfig {
 }
 impl SimConfig {
     pub fn new(bounds: Rect, max_time: f64) -> SimConfig {
-        SimConfig { dt: 0.02, max_time, bounds, max_speed: 50.0, stall_speed: 0.01, stall_time: 2.0 }
+        SimConfig {
+            dt: 0.02,
+            max_time,
+            bounds,
+            max_speed: 50.0,
+            stall_speed: 0.01,
+            stall_time: 2.0,
+        }
     }
 }
 
@@ -150,7 +168,11 @@ pub fn rk4_step_u(field: &Field, p: V2, t: f64, dt: f64, u: V2) -> V2 {
 pub fn seg_point(a: V2, b: V2, c: V2) -> (f64, f64) {
     let ab = b - a;
     let l2 = ab.dot(ab);
-    let u = if l2 < 1e-18 { 0.0 } else { ((c - a).dot(ab) / l2).clamp(0.0, 1.0) };
+    let u = if l2 < 1e-18 {
+        0.0
+    } else {
+        ((c - a).dot(ab) / l2).clamp(0.0, 1.0)
+    };
     ((a + ab * u).dist(c), u)
 }
 
@@ -171,14 +193,31 @@ pub struct SubStep {
 /// tunnel through a target between two sampled positions. The segment is the chord of the RK4
 /// step; its deviation from the true path is O(dt^2 * curvature), far below any target radius.
 #[allow(clippy::too_many_arguments)]
-pub fn substep(field: &Field, p: V2, t: f64, dt: f64, u: V2, regions: &[Region], cfg: &SimConfig, gates: &mut Vec<usize>) -> SubStep {
+pub fn substep(
+    field: &Field,
+    p: V2,
+    t: f64,
+    dt: f64,
+    u: V2,
+    regions: &[Region],
+    cfg: &SimConfig,
+    gates: &mut Vec<usize>,
+) -> SubStep {
     let v = field.eval(p, t) + u;
     if !v.is_finite() || v.len() > cfg.max_speed {
-        return SubStep { q: None, speed: f64::NAN, outcome: Some(Outcome::Invalid) };
+        return SubStep {
+            q: None,
+            speed: f64::NAN,
+            outcome: Some(Outcome::Invalid),
+        };
     }
     let q = rk4_step_u(field, p, t, dt, u);
     if !q.is_finite() {
-        return SubStep { q: None, speed: v.len(), outcome: Some(Outcome::Invalid) };
+        return SubStep {
+            q: None,
+            speed: v.len(),
+            outcome: Some(Outcome::Invalid),
+        };
     }
     let mut terminal: Option<(f64, usize)> = None;
     for (idx, r) in regions.iter().enumerate() {
@@ -200,18 +239,32 @@ pub fn substep(field: &Field, p: V2, t: f64, dt: f64, u: V2, regions: &[Region],
         }
     }
     let outcome = if let Some((_, idx)) = terminal {
-        Some(if regions[idx].kind == RegionKind::Hazard { Outcome::Hazard(idx) } else { Outcome::Reached(idx) })
+        Some(if regions[idx].kind == RegionKind::Hazard {
+            Outcome::Hazard(idx)
+        } else {
+            Outcome::Reached(idx)
+        })
     } else if !cfg.bounds.contains(q) {
         Some(Outcome::Boundary)
     } else {
         None
     };
-    SubStep { q: Some(q), speed: v.len(), outcome }
+    SubStep {
+        q: Some(q),
+        speed: v.len(),
+        outcome,
+    }
 }
 
 /// Integrate a probe released at `start` when the field clock reads `t0`.
 /// Identical inputs always give bit-identical output.
-pub fn simulate(field: &Field, start: V2, t0: f64, regions: &[Region], cfg: &SimConfig) -> Trajectory {
+pub fn simulate(
+    field: &Field,
+    start: V2,
+    t0: f64,
+    regions: &[Region],
+    cfg: &SimConfig,
+) -> Trajectory {
     let mut pts = vec![start];
     let mut gates: Vec<usize> = vec![];
     let mut p = start;
@@ -242,7 +295,13 @@ pub fn simulate(field: &Field, start: V2, t0: f64, regions: &[Region], cfg: &Sim
         }
         p = q;
     }
-    Trajectory { points: pts, dt: cfg.dt, t0, outcome, gates }
+    Trajectory {
+        points: pts,
+        dt: cfg.dt,
+        t0,
+        outcome,
+        gates,
+    }
 }
 
 /// Advance one *beat*: a fixed interval `beat_time` during which the constant gust `u` is added
@@ -250,12 +309,30 @@ pub fn simulate(field: &Field, start: V2, t0: f64, regions: &[Region], cfg: &Sim
 /// if the probe reached a region, left the bounds, or became numerically invalid mid-beat.
 /// The gust only exists inside this call; nothing persists to the next beat.
 #[allow(clippy::too_many_arguments)]
-pub fn advance_beat(field: &Field, start: V2, t0: f64, u: V2, beat_time: f64, regions: &[Region], cfg: &SimConfig, gates: &mut Vec<usize>) -> (Vec<V2>, Option<Outcome>) {
+pub fn advance_beat(
+    field: &Field,
+    start: V2,
+    t0: f64,
+    u: V2,
+    beat_time: f64,
+    regions: &[Region],
+    cfg: &SimConfig,
+    gates: &mut Vec<usize>,
+) -> (Vec<V2>, Option<Outcome>) {
     let n = (beat_time / cfg.dt).round().max(1.0) as usize;
     let mut p = start;
     let mut pts = Vec::with_capacity(n);
     for i in 0..n {
-        let s = substep(field, p, t0 + i as f64 * cfg.dt, cfg.dt, u, regions, cfg, gates);
+        let s = substep(
+            field,
+            p,
+            t0 + i as f64 * cfg.dt,
+            cfg.dt,
+            u,
+            regions,
+            cfg,
+            gates,
+        );
         let Some(q) = s.q else {
             return (pts, Some(Outcome::Invalid));
         };
@@ -280,7 +357,10 @@ mod tests {
     #[test]
     fn uniform_flow_is_exact() {
         let f = Field::new().fixed(Term::Uniform(v2(1.0, 0.5)));
-        let c = SimConfig { max_time: 4.0, ..cfg() };
+        let c = SimConfig {
+            max_time: 4.0,
+            ..cfg()
+        };
         let t = simulate(&f, v2(0.0, 0.0), 0.0, &[], &c);
         let e = t.end();
         assert!((e.x - 4.0).abs() < 1e-9 && (e.y - 2.0).abs() < 1e-9);
@@ -290,10 +370,18 @@ mod tests {
     #[test]
     fn vortex_conserves_radius_under_rk4() {
         // Pure vortex: circular orbits. RK4 at dt = 0.02 must stay within 0.1% over several turns.
-        let f = Field::new().fixed(Term::Vortex { c: v2(0.0, 0.0), k: 2.0, soft: 0.0 });
+        let f = Field::new().fixed(Term::Vortex {
+            c: v2(0.0, 0.0),
+            k: 2.0,
+            soft: 0.0,
+        });
         let t = simulate(&f, v2(2.0, 0.0), 0.0, &[], &cfg());
         for p in &t.points {
-            assert!((p.len() - 2.0).abs() < 2e-3, "radius drifted to {}", p.len());
+            assert!(
+                (p.len() - 2.0).abs() < 2e-3,
+                "radius drifted to {}",
+                p.len()
+            );
         }
     }
 
@@ -301,7 +389,15 @@ mod tests {
     fn deterministic_replay() {
         let f = Field::new()
             .fixed(Term::Uniform(v2(0.4, 0.0)))
-            .fixed(Term::Orbiting { kind: crate::field::SwirlKind::Vortex, c: v2(0.0, 0.0), orbit: 1.5, omega: 0.7, phase: 0.3, k: 1.2, soft: 0.5 });
+            .fixed(Term::Orbiting {
+                kind: crate::field::SwirlKind::Vortex,
+                c: v2(0.0, 0.0),
+                orbit: 1.5,
+                omega: 0.7,
+                phase: 0.3,
+                k: 1.2,
+                soft: 0.5,
+            });
         let a = simulate(&f, v2(-3.0, 0.4), 1.3, &[], &cfg());
         let b = simulate(&f, v2(-3.0, 0.4), 1.3, &[], &cfg());
         assert_eq!(a.points, b.points);
@@ -311,23 +407,41 @@ mod tests {
     #[test]
     fn detects_target_hazard_boundary_and_gate() {
         let f = Field::new().fixed(Term::Uniform(v2(1.0, 0.0)));
-        let c = SimConfig { bounds: Rect::new(-1.0, -1.0, 10.0, 1.0), ..cfg() };
+        let c = SimConfig {
+            bounds: Rect::new(-1.0, -1.0, 10.0, 1.0),
+            ..cfg()
+        };
         let regs = [Region::gate(2.0, 0.0, 0.3), Region::target(5.0, 0.0, 0.3)];
         let t = simulate(&f, v2(0.0, 0.0), 0.0, &regs, &c);
         assert_eq!(t.outcome, Outcome::Reached(1));
         assert_eq!(t.gates, vec![0]);
         let regs = [Region::hazard(3.0, 0.0, 0.3), Region::target(5.0, 0.0, 0.3)];
-        assert_eq!(simulate(&f, v2(0.0, 0.0), 0.0, &regs, &c).outcome, Outcome::Hazard(0));
-        assert_eq!(simulate(&f, v2(0.0, 0.0), 0.0, &[], &c).outcome, Outcome::Boundary);
+        assert_eq!(
+            simulate(&f, v2(0.0, 0.0), 0.0, &regs, &c).outcome,
+            Outcome::Hazard(0)
+        );
+        assert_eq!(
+            simulate(&f, v2(0.0, 0.0), 0.0, &[], &c).outcome,
+            Outcome::Boundary
+        );
     }
 
     #[test]
     fn invalid_and_stalled_are_caught() {
         let bad = Field::new().fixed(Term::Custom(|_, _| v2(f64::NAN, 0.0)));
-        assert_eq!(simulate(&bad, V2::ZERO, 0.0, &[], &cfg()).outcome, Outcome::Invalid);
+        assert_eq!(
+            simulate(&bad, V2::ZERO, 0.0, &[], &cfg()).outcome,
+            Outcome::Invalid
+        );
         let fast = Field::new().fixed(Term::Uniform(v2(1e6, 0.0)));
-        assert_eq!(simulate(&fast, V2::ZERO, 0.0, &[], &cfg()).outcome, Outcome::Invalid);
+        assert_eq!(
+            simulate(&fast, V2::ZERO, 0.0, &[], &cfg()).outcome,
+            Outcome::Invalid
+        );
         let still = Field::new();
-        assert_eq!(simulate(&still, V2::ZERO, 0.0, &[], &cfg()).outcome, Outcome::Stalled);
+        assert_eq!(
+            simulate(&still, V2::ZERO, 0.0, &[], &cfg()).outcome,
+            Outcome::Stalled
+        );
     }
 }

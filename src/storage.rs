@@ -3,7 +3,10 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn read() -> Option<String> {
-    vfield::save::file::read_from(&vfield::save::file::default_dir(), std::path::Path::new("."))
+    vfield::save::file::read_from(
+        &vfield::save::file::default_dir(),
+        std::path::Path::new("."),
+    )
 }
 
 #[cfg(not(target_arch = "wasm32"))]

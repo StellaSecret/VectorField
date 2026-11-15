@@ -4,7 +4,11 @@
 
 #[test]
 fn level_catalog_is_up_to_date() {
-    let committed = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/LEVEL_CATALOG.md")).expect("docs/LEVEL_CATALOG.md must exist");
+    let committed = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/docs/LEVEL_CATALOG.md"
+    ))
+    .expect("docs/LEVEL_CATALOG.md must exist");
     // Normalise line endings so a Windows checkout with autocrlf does not fail the comparison.
     let committed = committed.replace("\r\n", "\n");
     let fresh = vfield::catalog::render();
@@ -19,6 +23,11 @@ fn catalog_lists_every_level_once() {
     let text = vfield::catalog::render();
     for l in vfield::levels::all() {
         let header = format!("## {} - {} (", l.id, l.title);
-        assert_eq!(text.matches(&header).count(), 1, "{} must appear exactly once", l.id);
+        assert_eq!(
+            text.matches(&header).count(),
+            1,
+            "{} must appear exactly once",
+            l.id
+        );
     }
 }

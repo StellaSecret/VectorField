@@ -8,11 +8,16 @@ pub mod modes;
 pub mod save;
 pub mod sim;
 pub mod validate;
+pub mod validate_combo;
+pub mod validate_scout;
 pub mod validate_shape;
-pub mod validate_sync;
 pub mod validate_steer;
 pub mod validate_survey;
+pub mod validate_sync;
 
 pub use field::{v2, Field, Layer, SourceKind, Term, V2};
-pub use level::{Chapter, Challenge, GustDirs, Level, Reveal, Rules, Slot, SurveyGoal, SyncCond, Zone};
+pub use level::{
+    Challenge, Chapter, GustDirs, Level, Reveal, Rules, ScoutAct, ScoutRules, Slot, SteerSources,
+    SurveyGoal, SyncCond, Zone,
+};
 pub use sim::{simulate, Outcome, Rect, Region, RegionKind, SimConfig, Trajectory};

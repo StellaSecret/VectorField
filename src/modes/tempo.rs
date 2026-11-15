@@ -21,7 +21,13 @@ pub struct TempoGame {
 impl TempoGame {
     pub fn new(level: Level) -> Self {
         assert!(matches!(level.rules, Rules::Tempo { .. }));
-        TempoGame { level, clock: 0.0, playing: true, attempts: vec![], won: false }
+        TempoGame {
+            level,
+            clock: 0.0,
+            playing: true,
+            attempts: vec![],
+            won: false,
+        }
     }
     pub fn period(&self) -> f64 {
         match &self.level.rules {
@@ -49,7 +55,11 @@ impl TempoGame {
         let traj = self.level.run(&self.level.field, start, self.clock);
         let success = self.level.reached_goal(&traj, goal);
         self.won |= success;
-        self.attempts.push(TempoAttempt { phase: self.clock, traj, success });
+        self.attempts.push(TempoAttempt {
+            phase: self.clock,
+            traj,
+            success,
+        });
         self.attempts.last().unwrap()
     }
 }

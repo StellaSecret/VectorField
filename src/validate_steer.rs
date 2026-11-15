@@ -10,7 +10,17 @@ use std::collections::BTreeSet;
 pub type GustAt = (usize, usize);
 
 fn gusts_of(actions: &[Action]) -> Vec<GustAt> {
-    actions.iter().enumerate().filter_map(|(b, a)| if let Action::Gust(d) = a { Some((b, *d)) } else { None }).collect()
+    actions
+        .iter()
+        .enumerate()
+        .filter_map(|(b, a)| {
+            if let Action::Gust(d) = a {
+                Some((b, *d))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Result of enumerating every legal terminal run (depth-first; a run that ends early is one leaf).
@@ -26,13 +36,21 @@ pub struct Enumeration {
 }
 
 pub fn enumerate(spec: &SteerSpec) -> Enumeration {
-    let mut e = Enumeration { success_by_gusts: vec![0; spec.budget + 1], ..Default::default() };
+    let mut e = Enumeration {
+        success_by_gusts: vec![0; spec.budget + 1],
+        ..Default::default()
+    };
     let mut prefix = vec![];
     dfs(spec, &spec.initial(), &mut prefix, &mut e);
     e
 }
 
-fn dfs(spec: &SteerSpec, s: &crate::modes::steer::State, prefix: &mut Vec<Action>, e: &mut Enumeration) {
+fn dfs(
+    spec: &SteerSpec,
+    s: &crate::modes::steer::State,
+    prefix: &mut Vec<Action>,
+    e: &mut Enumeration,
+) {
     let mut actions = vec![Action::Wait];
     if s.gusts_left > 0 {
         actions.extend((0..spec.dirs.count()).map(Action::Gust));
@@ -61,7 +79,10 @@ fn dfs(spec: &SteerSpec, s: &crate::modes::steer::State, prefix: &mut Vec<Action
 }
 
 /// Play `policy` to the end and return the run.
-fn play(spec: &SteerSpec, mut policy: impl FnMut(&SteerSpec, &crate::modes::steer::State) -> Action) -> Run {
+fn play(
+    spec: &SteerSpec,
+    mut policy: impl FnMut(&SteerSpec, &crate::modes::steer::State) -> Action,
+) -> Run {
     let mut s = spec.initial();
     let mut beats = vec![];
     while s.end.is_none() {
@@ -70,7 +91,11 @@ fn play(spec: &SteerSpec, mut policy: impl FnMut(&SteerSpec, &crate::modes::stee
         s = b.next.clone();
         beats.push(b);
     }
-    Run { start: spec.start, beats, end: s.end }
+    Run {
+        start: spec.start,
+        beats,
+        end: s.end,
+    }
 }
 
 pub fn natural_run(spec: &SteerSpec) -> Run {
@@ -86,12 +111,26 @@ fn target(spec: &SteerSpec) -> (V2, f64) {
 pub fn bearing_dir(spec: &SteerSpec, p: V2) -> usize {
     let (c, _) = target(spec);
     let d = c - p;
-    (0..spec.dirs.count()).max_by(|a, b| spec.dirs.unit(*a).dot(d).partial_cmp(&spec.dirs.unit(*b).dot(d)).unwrap()).unwrap()
+    (0..spec.dirs.count())
+        .max_by(|a, b| {
+            spec.dirs
+                .unit(*a)
+                .dot(d)
+                .partial_cmp(&spec.dirs.unit(*b).dot(d))
+                .unwrap()
+        })
+        .unwrap()
 }
 
 /// Greedy 1: always push toward the target (nearest permitted compass direction) while gusts remain.
 pub fn greedy_bearing(spec: &SteerSpec) -> Run {
-    play(spec, |sp, s| if s.gusts_left > 0 { Action::Gust(bearing_dir(sp, s.pos)) } else { Action::Wait })
+    play(spec, |sp, s| {
+        if s.gusts_left > 0 {
+            Action::Gust(bearing_dir(sp, s.pos))
+        } else {
+            Action::Wait
+        }
+    })
 }
 
 /// Greedy 2: each beat take the legal action that minimises the probe's distance to the target at the
@@ -106,7 +145,11 @@ pub fn greedy_lookahead(spec: &SteerSpec) -> Run {
         }
         for a in acts {
             let b = sp.advance(s, a).unwrap();
-            let d = if b.next.end == Some(End::Success) { -1.0 } else { b.to().dist(c) };
+            let d = if b.next.end == Some(End::Success) {
+                -1.0
+            } else {
+                b.to().dist(c)
+            };
             if d < best.1 - 1e-12 {
                 best = (a, d);
             }
@@ -148,7 +191,16 @@ pub fn free_final(spec: &SteerSpec, actions: &[Action]) -> V2 {
     let mut p = spec.start;
     for b in 0..spec.beats {
         let a = actions.get(b).copied().unwrap_or(Action::Wait);
-        let (pts, _) = advance_beat(&spec.field, p, b as f64 * spec.beat_time, spec.gust(a), spec.beat_time, &[], &cfg, &mut vec![]);
+        let (pts, _) = advance_beat(
+            &spec.field,
+            p,
+            b as f64 * spec.beat_time,
+            spec.gust(a),
+            spec.beat_time,
+            &[],
+            &cfg,
+            &mut vec![],
+        );
         p = pts.last().copied().unwrap_or(p);
     }
     p
@@ -209,19 +261,38 @@ pub fn check(level: &Level) -> LevelCheck {
     let en = enumerate(&spec);
     let nat = natural_run(&spec);
     let (c, r) = target(&spec);
-    let natural_min = nat.path().iter().map(|p| p.dist(c)).fold(f64::INFINITY, f64::min);
+    let natural_min = nat
+        .path()
+        .iter()
+        .map(|p| p.dist(c))
+        .fold(f64::INFINITY, f64::min);
     let lev = leverage_curve(&spec);
     let maxlev = lev.iter().cloned().fold(0.0, f64::max);
     let high: Vec<usize> = (0..lev.len()).filter(|b| lev[*b] >= 0.8 * maxlev).collect();
 
     // single-gust placements
     let singles = spec.beats * spec.dirs.count();
-    let single_ok = en.solutions.iter().filter(|s| gusts_of(s).len() == 1).count();
-    let winning_gust_beats: Vec<usize> = en.solutions.iter().flat_map(|s| gusts_of(s)).map(|g| g.0).collect::<BTreeSet<_>>().into_iter().collect();
-    let high_leverage_helps = en.solutions.iter().any(|s| gusts_of(s).iter().any(|g| high.contains(&g.0)));
+    let single_ok = en
+        .solutions
+        .iter()
+        .filter(|s| gusts_of(s).len() == 1)
+        .count();
+    let winning_gust_beats: Vec<usize> = en
+        .solutions
+        .iter()
+        .flat_map(|s| gusts_of(s))
+        .map(|g| g.0)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    let high_leverage_helps = en
+        .solutions
+        .iter()
+        .any(|s| gusts_of(s).iter().any(|g| high.contains(&g.0)));
 
     // group successful sequences by their first gust
-    let mut by_first: std::collections::BTreeMap<GustAt, BTreeSet<Vec<GustAt>>> = Default::default();
+    let mut by_first: std::collections::BTreeMap<GustAt, BTreeSet<Vec<GustAt>>> =
+        Default::default();
     for s in &en.solutions {
         let g = gusts_of(s);
         if let Some(first) = g.first() {
@@ -250,7 +321,13 @@ pub fn check(level: &Level) -> LevelCheck {
 
     // first-gust comparisons
     let gl = greedy_lookahead(&spec);
-    let greedy_first = gl.beats.iter().enumerate().find_map(|(b, x)| if let Action::Gust(d) = x.action { Some((b, d)) } else { None });
+    let greedy_first = gl.beats.iter().enumerate().find_map(|(b, x)| {
+        if let Action::Gust(d) = x.action {
+            Some((b, d))
+        } else {
+            None
+        }
+    });
     let mut sideways = 0;
     let mut greedy_same = 0;
     let mut with_gust = 0;
@@ -272,7 +349,13 @@ pub fn check(level: &Level) -> LevelCheck {
             greedy_same += 1;
         }
     }
-    let share = |n: usize| if with_gust == 0 { 0.0 } else { n as f64 / with_gust as f64 };
+    let share = |n: usize| {
+        if with_gust == 0 {
+            0.0
+        } else {
+            n as f64 / with_gust as f64
+        }
+    };
     let _ = r;
     LevelCheck {
         id: level.id,
@@ -322,10 +405,27 @@ pub fn report(levels: &[Level]) -> String {
     s.push_str("\n## Per-level detail\n");
     for c in &checks {
         s.push_str(&format!("\n### {}\n", c.id));
-        s.push_str(&format!("- natural path misses the target by {:.2} (distance beyond tolerance)\n", c.natural_miss_margin));
-        s.push_str(&format!("- single-gust placements that succeed: {:.0}%; beats used by winning gusts: {:?}\n", 100.0 * c.single_gust_success, c.winning_gust_beats));
-        s.push_str(&format!("- leverage per beat (final-position shift / nominal push): {}\n", c.leverage.iter().map(|x| format!("{:.2}", x)).collect::<Vec<_>>().join(", ")));
-        s.push_str(&format!("- a solution uses a high-leverage beat: {}; a high-leverage gust can still fail: {}\n", c.high_leverage_helps, c.high_leverage_can_mislead));
+        s.push_str(&format!(
+            "- natural path misses the target by {:.2} (distance beyond tolerance)\n",
+            c.natural_miss_margin
+        ));
+        s.push_str(&format!(
+            "- single-gust placements that succeed: {:.0}%; beats used by winning gusts: {:?}\n",
+            100.0 * c.single_gust_success,
+            c.winning_gust_beats
+        ));
+        s.push_str(&format!(
+            "- leverage per beat (final-position shift / nominal push): {}\n",
+            c.leverage
+                .iter()
+                .map(|x| format!("{:.2}", x))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        s.push_str(&format!(
+            "- a solution uses a high-leverage beat: {}; a high-leverage gust can still fail: {}\n",
+            c.high_leverage_helps, c.high_leverage_can_mislead
+        ));
         if c.budget > 1 {
             s.push_str(&format!("- distinct follow-up sets across successful first gusts: {} (>1 means the best next gust depends on the first)\n", c.second_gust_variants));
         }

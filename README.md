@@ -14,7 +14,7 @@ A 2D puzzle game about steering a probe through a vector field, written in Rust
 | **Shape** | How should I change the field? | which sources to add, and where, then launch | creating the effect you want by changing the field |
 | **Synchronize** | How must these probes be coordinated? | when each of several probes is released | matching the timing of several trajectories (see docs/11-synchronize.md for how far this differs from Tempo) |
 
-39 levels across the eight mechanics (5 each for Position, Predict, Tempo, Experiment, Steer, Survey and Synchronize, 4 for Shape) and 6 combination levels. The evidence in the docs is automated: validation against the real simulation, with reader models standing in for players (`docs/09-survey.md`, `docs/10-shape.md`, `docs/11-synchronize.md`); playtest findings are not recorded there. See [docs/DESIGN.md](docs/DESIGN.md) for the per-mechanic
+39 levels across the eight mechanics (5 each for Position, Predict, Tempo, Experiment, Steer, Survey and Synchronize, 4 for Shape) and 19 combination levels. The evidence in the docs is automated: validation against the real simulation, with reader models standing in for players (`docs/09-survey.md`, `docs/10-shape.md`, `docs/11-synchronize.md`); playtest findings are not recorded there. See [docs/DESIGN.md](docs/DESIGN.md) for the per-mechanic
 design, and how the "these are really different" requirement is checked by automated tests.
 
 ## Run
@@ -27,6 +27,7 @@ cargo run --release --bin report -- --steer      # Steer validation report (see 
 cargo run --release --bin report -- --survey     # Survey validation report (see docs/SURVEY_VALIDATION.md)
 cargo run --release --bin report -- --shape      # Shape validation report (see docs/SHAPE_VALIDATION.md)
 cargo run --release --bin report -- --sync       # Synchronize validation report (see docs/SYNC_VALIDATION.md)
+cargo run --release --bin report -- --combo      # two-decision combination levels (see docs/COMBO_VALIDATION.md)
 ```
 
 Controls: the game is fully playable with the mouse alone (every action has an on-screen button, including Back, the arrow-density and high-contrast settings, and Replay; the keys are shortcuts, and `tests/mouse_only.rs` fails if a new key is added without a button; the one exception is `U`, the unlock-everything cheat). Mouse; Space/Enter launch or confirm; in Steer, Q W E / A S D / Z X C pick a gust direction (S = wait) or use the arrow keys; arrow keys nudge; in Survey, `S` scout / `M` marker (or `Tab`), click or Space to place, `C` commit; in Shape, click to place a source, drag to move it, `1`-`4` or `Tab` pick the kind, `Del`/`X`/right-click remove, `P` place at the keyboard cursor, Space launch; in Synchronize, drag a release handle on the timeline (or 1-3 and Left / Right), Space launch; `H` hint; `R` retry/reset; `V` replay;

@@ -390,6 +390,9 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - beats 5; gust budget 1; gust strength 1; beat length 1 s
   - gust directions: 8 (E, NE, N, NW, W, SW, S, SE)
   - goal region 0 (T)
+  - launch phase: fixed (0)
+  - start point: fixed
+  - sources: none
 
 ## ste-2 - Leverage (Steer)
 
@@ -407,6 +410,9 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - beats 6; gust budget 2; gust strength 0.35; beat length 1 s
   - gust directions: 8 (E, NE, N, NW, W, SW, S, SE)
   - goal region 0 (T)
+  - launch phase: fixed (0)
+  - start point: fixed
+  - sources: none
 
 ## ste-3 - Tipping Point (Steer)
 
@@ -425,6 +431,9 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - beats 6; gust budget 1; gust strength 1; beat length 1 s
   - gust directions: 8 (E, NE, N, NW, W, SW, S, SE)
   - goal region 0 (T)
+  - launch phase: fixed (0)
+  - start point: fixed
+  - sources: none
 
 ## ste-4 - The Long Way (Steer)
 
@@ -443,6 +452,9 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - beats 7; gust budget 2; gust strength 1; beat length 1 s
   - gust directions: 8 (E, NE, N, NW, W, SW, S, SE)
   - goal region 0 (T)
+  - launch phase: fixed (0)
+  - start point: fixed
+  - sources: none
 
 ## ste-5 - Set Up (Steer)
 
@@ -463,6 +475,9 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - beats 8; gust budget 2; gust strength 1; beat length 1 s
   - gust directions: 8 (E, NE, N, NW, W, SW, S, SE)
   - goal region 0 (T)
+  - launch phase: fixed (0)
+  - start point: fixed
+  - sources: none
 
 ## sur-1 - Something in the Stream (Survey)
 
@@ -610,6 +625,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - up to 1 source(s), each with strength k = 1.65 and width sigma = 0.8 (Gauss terms); none on a target or obstacle, none within 0.5 of another
   - placement areas: rectangle x in [-4, 3], y in [-3, 3]
   - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
+  - launch phase: fixed (0)
+  - intensity: fixed (1)
   - run time limit: 25 s
 
 ## shp-2 - Recover (Shape)
@@ -632,6 +649,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - up to 1 source(s), each with strength k = 1.65 and width sigma = 0.8 (Gauss terms); none on a target or obstacle, none within 0.5 of another
   - placement areas: rectangle x in [-1, 2.8], y in [0.2, 2.2]
   - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
+  - launch phase: fixed (0)
+  - intensity: fixed (1)
   - run time limit: 25 s
 
 ## shp-3 - Turn (Shape)
@@ -654,6 +673,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - up to 1 source(s), each with strength k = 1.65 and width sigma = 0.8 (Gauss terms); none on a target or obstacle, none within 0.5 of another
   - placement areas: rectangle x in [-2.2, 2.2], y in [-1.8, 1.8]
   - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
+  - launch phase: fixed (0)
+  - intensity: fixed (1)
   - run time limit: 25 s
 
 ## shp-4 - Compose (Shape)
@@ -676,6 +697,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - up to 2 source(s), each with strength k = 1.65 and width sigma = 0.8 (Gauss terms); none on a target or obstacle, none within 0.5 of another
   - placement areas: rectangle x in [-3, 3], y in [0.3, 3.2]
   - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
+  - launch phase: fixed (0)
+  - intensity: fixed (1)
   - run time limit: 25 s
 
 ## syn-1 - Rendezvous (Synchronize)
@@ -902,3 +925,303 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - release zone 2: rectangle x in [-5.5, -4], y in [-1.33, -0.3]; its probe must reach region 1 (T)
   - launch phase: fixed (0)
   - shared intensity is also chosen, range [0, 3]
+
+## cmb-7 - Source on the Tide (Combinations)
+
+- objective: Shape + Tempo: the flow pulses. Choose when to launch and where to put one source.
+- hint 1: Launch with nothing placed and scrub the timeline: the pulse lifts the probe at some times and not at others, but never onto the target.
+- hint 2: A source does not pulse. It pushes the same way whenever the probe passes it, so the same source can help at one launch time and be useless at another.
+- hint 3: Find a launch time that gets the probe close, then place the source where it adds the rest. Moving the launch time moves where the probe is when it reaches the source.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 25 s; seed: 295175483
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1, 0)
+  2. fixed - modulated: [uniform flow (0, 1)] x (0 + 0.6 sin(0.5235987755982988 t + 2.22529479629277))
+- regions:
+  0. target 'T' centre (4.5, 2.7) radius 0.6
+  1. hazard 'X' centre (-0.5, 0) radius 0.6
+- rules:
+  - mechanic: **Shape**
+  - the field layers above are the fixed background; the player adds sources to them
+  - probe starts at (-5, 0); it must reach region 0 (T), and any hazard ends the run
+  - source kinds offered: repeller, attractor
+  - up to 1 source(s), each with strength k = 1.65 and width sigma = 0.8 (Gauss terms); none on a target or obstacle, none within 0.5 of another
+  - placement areas: rectangle x in [-4, 3], y in [-3, 3]
+  - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
+  - launch phase is also chosen, period 12 s (sources do not change with it)
+  - intensity: fixed (1)
+  - run time limit: 25 s
+
+## cmb-8 - Compensate (Combinations)
+
+- objective: Shape + dial: set the strength of the current, then place one source to finish the approach.
+- hint 1: Launch with nothing placed at a few dial settings. The big obstacle sits on the stream: the current has to carry the probe round it.
+- hint 2: A source only acts near where you put it, downstream of the obstacle. It cannot carry the probe round the obstacle; the dial has to.
+- hint 3: Too weak and the probe meets the obstacle; too strong and it is flung past the target by more than one source can undo. Find the band between, then place the source.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 25 s; seed: 295175484
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1, 0)
+  2. tunable - vortex about (-0.7, 2.5): v = k perp(d) / (|d|^2 + soft^2), k = -3.6, soft = 0.8 (clockwise)
+  (default intensity 1)
+- regions:
+  0. target 'T' centre (4.5, 0.9) radius 0.6
+  1. hazard 'X' centre (-0.15, 0.45) radius 1.25
+- rules:
+  - mechanic: **Shape**
+  - the field layers above are the fixed background; the player adds sources to them
+  - probe starts at (-5, 0); it must reach region 0 (T), and any hazard ends the run
+  - source kinds offered: repeller, attractor
+  - up to 1 source(s), each with strength k = 1.65 and width sigma = 0.8 (Gauss terms); none on a target or obstacle, none within 0.5 of another
+  - placement areas: rectangle x in [0, 3.5], y in [-3, 3]
+  - sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch
+  - launch phase: fixed (0)
+  - background intensity is also chosen, range [0, 3] (sources ignore it)
+  - run time limit: 25 s
+
+## cmb-9 - Make Them Meet (Combinations)
+
+- objective: Shape + Synchronize: place one source, then time both probes to arrive together.
+- hint 1: Launch both probes with no source and read the timeline. Each can reach the target at some release times, but their arrival times never come within the allowed band of each other.
+- hint 2: A source changes the route of any probe that passes near it, and so changes when that probe arrives. It does not pulse: it pushes the same way at every release time.
+- hint 3: Place the source first, then try release times. A source that moves one probe's arrival into reach of the other's is the start; the delays decide the rest.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 295175485
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.9, 0)
+  2. fixed - modulated: [local radial push about (-0.08, -1.67): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 9.43))
+  3. fixed - modulated: [local radial push about (0.97, 1.85): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 5.47))
+- regions:
+  0. target 'T' centre (4.5, 0) radius 0.9
+- rules:
+  - mechanic: **Synchronize**
+  - 2 probes fly the same field; the player chooses only each probe's release delay (0 to 12 s, in steps of 0.1 s; the field clock at release)
+  - field period 12 s
+  - probe 0 starts at (-5, -1.46) and must reach region 0 (T)
+  - probe 1 starts at (-2.69, 1.13) and must reach region 0 (T)
+  - condition: probe 1 must enter region 0 (T) between -0.6 and 0.6 s after probe 0 enters region 0 (T)
+  - sources are also placed (they change the field every probe flies): up to 1 of repeller / attractor (strength 1.65, width 0.8), inside the placement area
+  - run time limit: 20 s per probe
+
+## cmb-10 - Route and Rendezvous (Combinations)
+
+- objective: Synchronize + Position: choose where probe B starts, then time both probes to arrive together.
+- hint 1: Probe B can start from any of the numbered markers. Launch both probes from the first marker and read the timeline: B can reach the target at some release times, but never within the allowed band of A's arrival, whatever you do with the delays.
+- hint 2: Each start gives B a different route through the pulsing field, and so different release times at which it arrives, and different arrival times. Try the other markers and see which of them puts B's arrival into reach of A's.
+- hint 3: Two of the five starts can work. Choose one, then use the delays to line the arrivals up; releasing both together does not work from any start.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439835
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.26, -0.16)
+  2. fixed - modulated: [local radial push about (-2.58, -0.68): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 9.469999999999999))
+  3. fixed - modulated: [local radial push about (-1.06, -1.1): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 4.2))
+- regions:
+  0. target 'T' centre (4.5, 0.25) radius 0.9
+- rules:
+  - mechanic: **Synchronize**
+  - 2 probes fly the same field; the player chooses only each probe's release delay (0 to 12 s, in steps of 0.1 s; the field clock at release)
+  - field period 12 s
+  - probe 0 starts at (-5, 1.05) and must reach region 0 (T)
+  - probe 1 starts at (-4.58, -2.14) and must reach region 0 (T)
+  - condition: probe 1 must enter region 0 (T) between -0.6 and 0.6 s after probe 0 enters region 0 (T)
+  - probe 1 is also released from one of 5 numbered start slots (slot 1 is its default): 1 at (-4.58, -2.14), 2 at (-2.18, 1.09), 3 at (-3.05, 0.51), 4 at (-2.52, -1.15), 5 at (-4.83, -1.2)
+  - run time limit: 20 s per probe
+
+## cmb-11 - Catch the Gust (Combinations)
+
+- objective: Steer + Tempo: choose when to start, then steer with two gusts.
+- hint 1: Two gusts are not enough to reach the target from the start you are given. Scrub the start time and watch which way the pulse pushes the probe.
+- hint 2: Start when the pulse carries the probe up for most of the run, then use the gusts for the rest. The start time cannot be changed once the first beat is played.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 40 s; seed: 9150439836
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.2, 0)
+  2. fixed - modulated: [uniform flow (0, 1)] x (0 + 0.6 sin(0.5235987755982988 t + 2.617993877991494))
+- regions:
+  0. target 'T' centre (4.4, 3.1) radius 0.5
+- rules:
+  - mechanic: **Steer**
+  - fixed start (-5, 0)
+  - beats 8; gust budget 2; gust strength 1; beat length 1 s
+  - gust directions: 8 (E, NE, N, NW, W, SW, S, SE)
+  - goal region 0 (T)
+  - launch phase is also chosen before the first beat, period 12 s
+  - start point: fixed
+  - sources: none
+
+## cmb-12 - Fewer Gusts (Combinations)
+
+- objective: Steer + Position: choose where to start, then steer with two gusts.
+- hint 1: Two gusts are not enough from the start you are given. Click on the start line to move where the probe begins, before the first beat.
+- hint 2: A higher start saves gusts, but the obstacle above the lane punishes a start that is too high. Look for the band between.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 40 s; seed: 9150439837
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.15, 0)
+  2. fixed - vortex about (-2.7, 0): v = k perp(d) / (|d|^2 + soft^2), k = -2.1, soft = 0.8 (clockwise)
+- regions:
+  0. target 'T' centre (4, 2.85) radius 0.5
+  1. hazard 'X' centre (-0.15, 3.35) radius 0.9
+- rules:
+  - mechanic: **Steer**
+  - fixed start (-5, 0)
+  - beats 8; gust budget 2; gust strength 1; beat length 1 s
+  - gust directions: 8 (E, NE, N, NW, W, SW, S, SE)
+  - goal region 0 (T)
+  - launch phase: fixed (0)
+  - start point is also chosen inside [-5, -5] x [-3, 3] before the first beat
+  - sources: none
+
+## cmb-13 - Pave the Way (Combinations)
+
+- objective: Steer + Shape: place one source first, then steer with a single gust.
+- hint 1: With no source, play the run and watch where the field takes the probe: one gust cannot bring it to the target.
+- hint 2: A source acts the whole way along the run, not just on one beat. Place it where it bends the flow toward the target and away from the obstacle.
+- hint 3: You cannot change the source once the first beat is played. Place it, then spend the single gust where the field still falls short.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 40 s; seed: 9150439838
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.12, 0)
+  2. fixed - vortex about (-2, 0.97): v = k perp(d) / (|d|^2 + soft^2), k = 1.05, soft = 0.8 (counter-clockwise)
+- regions:
+  0. target 'T' centre (3.76, -2.05) radius 0.5
+  1. hazard 'X' centre (-0.94, -0.9) radius 0.6
+- rules:
+  - mechanic: **Steer**
+  - fixed start (-5, 0)
+  - beats 8; gust budget 1; gust strength 1; beat length 1 s
+  - gust directions: 8 (E, NE, N, NW, W, SW, S, SE)
+  - goal region 0 (T)
+  - launch phase: fixed (0)
+  - start point: fixed
+  - sources are also placed before the first beat: up to 1 of repeller / attractor (strength 1.65, width 0.8), inside the placement area
+
+## cmb-14 - Scout, Then Release (Combinations)
+
+- objective: Survey + Position: scout the hidden source, then choose where to release the probe.
+- hint 1: The probe can be released from any of the numbered diamonds, but only some of them reach the target, and which ones depends on the hidden source. Scouts are optional, but the source changes every attempt.
+- hint 2: A scout starts in the shaded strip and shows you what the source does to a flight: the yellow arrows are its push. Work out where the source is and which way it bends the flow the probe will ride.
+- hint 3: Release from a slot on the side the source would push the probe away from, so that it is bent back onto the target. Three right choices in a row.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439839
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.22, 0.11)
+  2. fixed - vortex about (-0.75, -2.3): v = k perp(d) / (|d|^2 + soft^2), k = 1.9, soft = 0.8 (counter-clockwise)
+- regions:
+  0. target 'T' centre (4.5, 1.25) radius 0.8
+- rules:
+  - mechanic: **Scout, then release (Survey + Position)**
+  - the main probe starts at (-5, 0) unless a choice moves it
+  - the field layers above are the visible background; a hidden source is added to it in every flight
+  - hidden sources (one is drawn at random each attempt, never the one just used; strength 2.01, width 0.8): attractor at (-1.4, 2.48), attractor at (-2.28, -1.02), attractor at (-0.57, -2.33)
+  - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
+  - then choose the release slot of the main probe from 7 numbered slots (1 at (-5, -2.52), 2 at (-5, -1.74), 3 at (-5, -0.86), 4 at (-5, 0.12), 5 at (-5, 0.88), 6 at (-5, 1.57), 7 at (-5, 2.51)), which must reach the target at (4.5, 1.25); the choice is committed before the probe flies
+  - 3 correct choices in a row complete the level; a wrong one resets the streak
+  - run time limit: 20 s
+
+## cmb-15 - Cancel It (Combinations)
+
+- objective: Survey + Shape: scout the hidden source, then choose a source to add that cancels it.
+- hint 1: A hidden source bends the probe off the target. You may add one source of your own: pick one of the eight marked options (orange plus: a repeller, blue minus: an attractor). The same kind of source in the same place would double the push.
+- hint 2: Scout the hidden source and read its kind from the yellow arrows: they point away from a repeller and toward an attractor. Then add the opposite kind in the same place, so that the two push cancel.
+- hint 3: The hidden source is in one of four places and changes every attempt. Three right choices in a row.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439840
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.06, -0.05)
+  2. fixed - vortex about (1.78, 0.94): v = k perp(d) / (|d|^2 + soft^2), k = -0.86, soft = 0.8 (clockwise)
+- regions:
+  0. target 'T' centre (4.5, 0.11) radius 0.9
+- rules:
+  - mechanic: **Scout, then cancel (Survey + Shape)**
+  - the main probe starts at (-5, 0) unless a choice moves it
+  - the field layers above are the visible background; a hidden source is added to it in every flight
+  - hidden sources (one is drawn at random each attempt, never the one just used; strength 2.01, width 0.8): attractor at (-2.17, 1.26), repeller at (0.59, 0.63), attractor at (2.22, 0.56)
+  - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
+  - then choose one source to add from 8 numbered options (1 repeller at (-2.17, 1.26), 2 repeller at (-0.74, -0.26), 3 repeller at (0.59, 0.63), 4 repeller at (2.22, 0.56), 5 attractor at (-2.17, 1.26), 6 attractor at (-0.74, -0.26), 7 attractor at (0.59, 0.63), 8 attractor at (2.22, 0.56)), same strength and width as the hidden ones; the probe from (-5, 0) must reach the target at (4.5, 0.11); the choice is committed before the probe flies
+  - 3 correct choices in a row complete the level; a wrong one resets the streak
+  - run time limit: 20 s
+
+## cmb-16 - Scout, Then Call It (Combinations)
+
+- objective: Survey + Predict: scout the hidden source, then call which exit the probe takes.
+- hint 1: The arrows show the background only. A hidden source is also bending every flight, yours included. Launch scouts from the strip on the left and read the small push arrows: they show what the hidden source did to each scout.
+- hint 2: A push points along the line to the source: away from it for a repeller, toward it for an attractor. Two scouts that felt it are enough to see where those lines cross, and the direction tells you the kind.
+- hint 3: Once you know where it is and which kind, picture the main probe (the diamond) flying through the same field, then call the exit. The hidden source is different every attempt, so a call that worked once will not work again: three right calls in a row.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439841
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.08, 0.09)
+- regions:
+  0. target 'A' centre (4.5, 2.7) radius 1
+  1. target 'B' centre (4.5, 0.9) radius 1
+  2. target 'C' centre (4.5, -0.9) radius 1
+  3. target 'D' centre (4.5, -2.7) radius 1
+- rules:
+  - mechanic: **Scout, then call (Survey + Predict)**
+  - the main probe starts at (-5, 0)
+  - the field layers above are the visible background; a hidden source is added to it in every flight
+  - hidden sources (one is drawn at random each attempt, never the one just used; strength 2.01, width 0.8): repeller at (-0.38, -1.43), attractor at (-2.06, 1.64), attractor at (0.91, -0.68)
+  - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
+  - then call which of 4 exits the main probe will take: A at (4.5, 2.7), B at (4.5, 0.9), C at (4.5, -0.9), D at (4.5, -2.7); the call is committed before the probe flies
+  - 3 correct choices in a row complete the level; a wrong one resets the streak
+  - run time limit: 20 s
+
+## cmb-17 - Scout, Then Steer (Combinations)
+
+- objective: Survey + Steer: scout the hidden source, then choose the gust plan that gets the probe to the target.
+- hint 1: Four gust plans are on offer. Each gusts in a fixed direction at fixed beats; the probe gets six beats of one second to reach the target. Only one plan suits each hidden source.
+- hint 2: The hidden source changes every attempt. A scout shows you where it is and which kind it is (the yellow arrows point away from a repeller and toward an attractor), and so which way it will push the probe.
+- hint 3: Read each plan as a push in a direction at a time, and pick the one that cancels the source's effect on the probe. Three right choices in a row.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439842
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.14, 0.13)
+  2. fixed - vortex about (-1.45, 1.5): v = k perp(d) / (|d|^2 + soft^2), k = 2.85, soft = 0.8 (counter-clockwise)
+- regions:
+  0. target 'T' centre (4.5, 1.82) radius 1
+- rules:
+  - mechanic: **Scout, then steer (Survey + Steer)**
+  - the main probe starts at (-5, 0) unless a choice moves it
+  - the field layers above are the visible background; a hidden source is added to it in every flight
+  - hidden sources (one is drawn at random each attempt, never the one just used; strength 3, width 0.8): attractor at (0.48, -1.83), attractor at (0.52, 1.24), repeller at (1.71, -1.47)
+  - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
+  - then choose one of 4 fixed gust plans (strength 1, 1 s per beat; 1: NW at beat 2; 2: S at beat 2, N at beat 5; 3: NE at beat 1; 4: S at beat 4) so that the probe from (-5, 0) reaches the target at (4.5, 1.82); the choice is committed before the probe flies
+  - 3 correct choices in a row complete the level; a wrong one resets the streak
+  - run time limit: 20 s
+
+## cmb-18 - Scout Through the Swirl (Combinations)
+
+- objective: Survey + Predict: the background curves every flight. Scout the hidden source, then call the exit.
+- hint 1: This background is not a straight stream: a swirl bends every flight. The small push arrows already subtract the swirl, so they show only what the hidden source did.
+- hint 2: The swirl also bends the main probe, so do not call the exit from a straight line. Locate the source from the push arrows, then picture the probe flying through the swirl and the source together.
+- hint 3: The hidden source is different every attempt: three right calls in a row.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439843
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.29, -0.14)
+  2. fixed - vortex about (-0.81, -0.8): v = k perp(d) / (|d|^2 + soft^2), k = -2.54, soft = 0.8 (clockwise)
+- regions:
+  0. target 'A' centre (4.5, 2.7) radius 1
+  1. target 'B' centre (4.5, 0.9) radius 1
+  2. target 'C' centre (4.5, -0.9) radius 1
+  3. target 'D' centre (4.5, -2.7) radius 1
+- rules:
+  - mechanic: **Scout, then call (Survey + Predict)**
+  - the main probe starts at (-5, 0)
+  - the field layers above are the visible background; a hidden source is added to it in every flight
+  - hidden sources (one is drawn at random each attempt, never the one just used; strength 2.01, width 0.8): attractor at (1.1, -0.58), repeller at (1.16, -1.87), repeller at (-1.4, 0.55)
+  - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
+  - then call which of 4 exits the main probe will take: A at (4.5, 2.7), B at (4.5, 0.9), C at (4.5, -0.9), D at (4.5, -2.7); the call is committed before the probe flies
+  - 3 correct choices in a row complete the level; a wrong one resets the streak
+  - run time limit: 20 s
+
+## cmb-19 - Scout, Then Time It (Combinations)
+
+- objective: Survey + Tempo: scout the hidden source, then choose when to launch the probe.
+- hint 1: The background pulses with a twelve-second rhythm, and the probe is released at the phase you choose: 1 is phase 0, 2 is 2 s into the rhythm, and so on. Launching at phase 0 never works, whatever the hidden source.
+- hint 2: Scouts fly from phase 0 and show you the hidden source (yellow arrows point toward an attractor). Work out which way it will pull the probe, then think about which part of the pulse leaves the probe where the source's pull can finish the job.
+- hint 3: The hidden source changes every attempt, and each one has its own right phase. Three right choices in a row.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439844
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.13, 0.2)
+  2. fixed - modulated: [uniform flow (0, 0.88)] x (0 + 0.8 sin(0.5235987755982988 t + 0))
+- regions:
+  0. target 'T' centre (4.5, -0.29) radius 1
+- rules:
+  - mechanic: **Scout, then time it (Survey + Tempo)**
+  - the main probe starts at (-5, 0) unless a choice moves it
+  - the field layers above are the visible background; a hidden source is added to it in every flight
+  - hidden sources (one is drawn at random each attempt, never the one just used; strength 2.01, width 0.8): attractor at (-1.84, 2.21), attractor at (-1.81, 0.61), attractor at (-2.68, -2.06)
+  - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
+  - then choose the launch phase of the main probe from 6 numbered options (0, 2, 4, 6, 8, 10 s; the first is the default), which must reach the target at (4.5, -0.29); the choice is committed before the probe flies
+  - 3 correct choices in a row complete the level; a wrong one resets the streak
+  - run time limit: 20 s

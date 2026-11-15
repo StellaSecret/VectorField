@@ -36,7 +36,11 @@ pub struct ExperimentGame {
 
 fn parts(l: &Level) -> (V2, (f64, f64), &Challenge) {
     match &l.rules {
-        Rules::Experiment { start, range, challenge } => (*start, *range, challenge),
+        Rules::Experiment {
+            start,
+            range,
+            challenge,
+        } => (*start, *range, challenge),
         _ => panic!("not an Experiment level"),
     }
 }
@@ -49,10 +53,12 @@ pub fn probe(level: &Level, intensity: f64) -> Trajectory {
 
 pub fn sweep(level: &Level, n: usize) -> Vec<(f64, Trajectory)> {
     let (_, (a, b), _) = parts(level);
-    (0..n).map(|i| {
-        let x = a + (b - a) * i as f64 / (n - 1) as f64;
-        (x, probe(level, x))
-    }).collect()
+    (0..n)
+        .map(|i| {
+            let x = a + (b - a) * i as f64 / (n - 1) as f64;
+            (x, probe(level, x))
+        })
+        .collect()
 }
 
 /// Unwrapped angle (radians, + = counter-clockwise) a path sweeps around `c`.
@@ -151,8 +157,16 @@ pub fn truth(level: &Level) -> Option<Truth> {
             let is = |t: &Trajectory| t.outcome == Outcome::Reached(*exit);
             let first = s.iter().position(|(_, t)| is(t))?;
             let last = s.iter().rposition(|(_, t)| is(t))?;
-            let a = if first == 0 { lo } else { bisect(level, s[first].0, s[first - 1].0, &is) };
-            let b = if last + 1 >= s.len() { hi } else { bisect(level, s[last].0, s[last + 1].0, &is) };
+            let a = if first == 0 {
+                lo
+            } else {
+                bisect(level, s[first].0, s[first - 1].0, &is)
+            };
+            let b = if last + 1 >= s.len() {
+                hi
+            } else {
+                bisect(level, s[last].0, s[last + 1].0, &is)
+            };
             Some(Truth::Estimates(vec![a, b]))
         }
     }
@@ -161,7 +175,12 @@ pub fn truth(level: &Level) -> Option<Truth> {
 impl ExperimentGame {
     pub fn new(level: Level) -> Self {
         let _ = parts(&level);
-        ExperimentGame { level, runs: vec![], solved: false, feedback: String::new() }
+        ExperimentGame {
+            level,
+            runs: vec![],
+            solved: false,
+            feedback: String::new(),
+        }
     }
     pub fn range(&self) -> (f64, f64) {
         parts(&self.level).1
@@ -172,10 +191,22 @@ impl ExperimentGame {
     /// Labels of the choices for choice-type challenges (empty for estimate challenges).
     pub fn choices(&self) -> Vec<String> {
         match self.challenge() {
-            Challenge::ExitShift { .. } => vec!["Clockwise".into(), "Counter-clockwise".into(), "Neither / inconsistent".into()],
-            Challenge::Return => vec!["Yes: it returns to an exit it left".into(), "No: every exit is visited once".into()],
+            Challenge::ExitShift { .. } => vec![
+                "Clockwise".into(),
+                "Counter-clockwise".into(),
+                "Neither / inconsistent".into(),
+            ],
+            Challenge::Return => vec![
+                "Yes: it returns to an exit it left".into(),
+                "No: every exit is visited once".into(),
+            ],
             Challenge::Extrapolate { .. } => {
-                let mut v: Vec<String> = self.level.exits().iter().map(|i| format!("Exit {}", self.level.regions[*i].label)).collect();
+                let mut v: Vec<String> = self
+                    .level
+                    .exits()
+                    .iter()
+                    .map(|i| format!("Exit {}", self.level.regions[*i].label))
+                    .collect();
                 v.push("Leaves between exits".into());
                 v
             }
@@ -216,7 +247,11 @@ impl ExperimentGame {
             return Err("Beyond the test rig. Infer it from what you can run.".into());
         }
         let traj = probe(&self.level, i);
-        self.runs.push(Run { intensity: i, traj, visible: true });
+        self.runs.push(Run {
+            intensity: i,
+            traj,
+            visible: true,
+        });
         Ok(self.runs.len() - 1)
     }
     pub fn reset(&mut self) {
@@ -237,8 +272,16 @@ impl ExperimentGame {
     /// Evidence checklist: what the player must have observed before concluding.
     pub fn evidence(&self) -> Vec<(String, bool)> {
         let (a, b) = self.range();
-        let span = self.runs.iter().map(|r| r.intensity).fold(f64::NEG_INFINITY, f64::max)
-            - self.runs.iter().map(|r| r.intensity).fold(f64::INFINITY, f64::min);
+        let span = self
+            .runs
+            .iter()
+            .map(|r| r.intensity)
+            .fold(f64::NEG_INFINITY, f64::max)
+            - self
+                .runs
+                .iter()
+                .map(|r| r.intensity)
+                .fold(f64::INFINITY, f64::min);
         let have_span = |frac: f64| self.runs.len() >= 2 && span >= frac * (b - a);
         match self.challenge() {
             Challenge::ExitShift { .. } => vec![
@@ -251,16 +294,42 @@ impl ExperimentGame {
             ],
             Challenge::Extrapolate { limit, .. } => vec![
                 ("5+ runs".into(), self.runs.len() >= 5),
-                ("runs span 60% of the testable range".into(), self.runs.len() >= 2 && span >= 0.6 * limit),
-                ("a run in the top third of the rig".into(), self.runs.iter().any(|r| r.intensity >= limit * 0.66)),
+                (
+                    "runs span 60% of the testable range".into(),
+                    self.runs.len() >= 2 && span >= 0.6 * limit,
+                ),
+                (
+                    "a run in the top third of the rig".into(),
+                    self.runs.iter().any(|r| r.intensity >= limit * 0.66),
+                ),
             ],
             Challenge::Threshold { from, to, .. } => vec![
-                (format!("seen exit {}", self.level.regions[*from].label), self.runs.iter().any(|r| self.exit_label(&r.traj) == Some(*from))),
-                (format!("seen exit {}", self.level.regions[*to].label), self.runs.iter().any(|r| self.exit_label(&r.traj) == Some(*to))),
+                (
+                    format!("seen exit {}", self.level.regions[*from].label),
+                    self.runs
+                        .iter()
+                        .any(|r| self.exit_label(&r.traj) == Some(*from)),
+                ),
+                (
+                    format!("seen exit {}", self.level.regions[*to].label),
+                    self.runs
+                        .iter()
+                        .any(|r| self.exit_label(&r.traj) == Some(*to)),
+                ),
             ],
             Challenge::Interval { exit, .. } => vec![
-                (format!("seen exit {}", self.level.regions[*exit].label), self.runs.iter().any(|r| self.exit_label(&r.traj) == Some(*exit))),
-                ("seen a different result".into(), self.runs.iter().any(|r| self.exit_label(&r.traj) != Some(*exit))),
+                (
+                    format!("seen exit {}", self.level.regions[*exit].label),
+                    self.runs
+                        .iter()
+                        .any(|r| self.exit_label(&r.traj) == Some(*exit)),
+                ),
+                (
+                    "seen a different result".into(),
+                    self.runs
+                        .iter()
+                        .any(|r| self.exit_label(&r.traj) != Some(*exit)),
+                ),
                 ("3+ runs".into(), self.runs.len() >= 3),
             ],
         }
@@ -270,7 +339,10 @@ impl ExperimentGame {
     }
     pub fn conclude(&mut self, c: Conclusion) -> Verdict {
         if !self.can_conclude() {
-            return Verdict { correct: false, message: "Gather more evidence first.".into() };
+            return Verdict {
+                correct: false,
+                message: "Gather more evidence first.".into(),
+            };
         }
         let tr = truth(&self.level);
         let tol = match self.challenge() {
@@ -282,7 +354,11 @@ impl ExperimentGame {
             (Some(Truth::ReturnChoice(t)), Conclusion::Choice(c)) => t == c,
             (Some(Truth::ExitAt(e)), Conclusion::Choice(c)) => {
                 let exits = self.level.exits();
-                if *c == exits.len() { e.is_none() } else { e.is_some() && exits.get(*c) == e.as_ref() }
+                if *c == exits.len() {
+                    e.is_none()
+                } else {
+                    e.is_some() && exits.get(*c) == e.as_ref()
+                }
             }
             (Some(Truth::Estimates(t)), Conclusion::Estimates(e)) => {
                 let mut e = e.clone();
@@ -301,6 +377,9 @@ impl ExperimentGame {
             }
         };
         self.feedback = message.clone();
-        Verdict { correct: ok, message }
+        Verdict {
+            correct: ok,
+            message,
+        }
     }
 }

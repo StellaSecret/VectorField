@@ -33,19 +33,30 @@ pub struct Save {
 
 impl Default for Save {
     fn default() -> Self {
-        Save { done: BTreeSet::new(), grid: DEFAULT_GRID, hc: false }
+        Save {
+            done: BTreeSet::new(),
+            grid: DEFAULT_GRID,
+            hc: false,
+        }
     }
 }
 
 fn valid_id(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 32 && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    !s.is_empty()
+        && s.len() <= 32
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 impl Save {
     pub fn parse(text: &str) -> Save {
         let mut s = Save::default();
         let text = text.trim_start_matches('\u{feff}');
-        let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty()).peekable();
+        let mut lines = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .peekable();
         let versioned = lines.peek().is_some_and(|l| l.starts_with("vfield-save"));
         if !versioned {
             // the old format: a bare level id on every line
@@ -54,7 +65,9 @@ impl Save {
         }
         lines.next();
         for l in lines {
-            let (key, val) = l.split_once(char::is_whitespace).map_or((l, ""), |(k, v)| (k, v.trim()));
+            let (key, val) = l
+                .split_once(char::is_whitespace)
+                .map_or((l, ""), |(k, v)| (k, v.trim()));
             match key {
                 "done" if valid_id(val) => {
                     s.done.insert(val.to_string());
@@ -76,7 +89,11 @@ impl Save {
         for id in &self.done {
             out.push_str(&format!("done {id}\n"));
         }
-        out.push_str(&format!("grid {}\nhc {}\n", self.grid.min(GRID_MODES - 1), self.hc as u8));
+        out.push_str(&format!(
+            "grid {}\nhc {}\n",
+            self.grid.min(GRID_MODES - 1),
+            self.hc as u8
+        ));
         out
     }
 }
@@ -93,7 +110,11 @@ pub mod file {
     /// The folder the save lives in, from the environment (`env` is `std::env::var` in the game, a map in tests):
     /// `VFIELD_SAVE_DIR` if set, else the platform's per-user data folder, else `None` (the caller then uses the
     /// current directory).
-    pub fn save_dir(env: &dyn Fn(&str) -> Option<String>, windows: bool, mac: bool) -> Option<PathBuf> {
+    pub fn save_dir(
+        env: &dyn Fn(&str) -> Option<String>,
+        windows: bool,
+        mac: bool,
+    ) -> Option<PathBuf> {
         let set = |k: &str| env(k).filter(|v| !v.is_empty());
         if let Some(d) = set("VFIELD_SAVE_DIR") {
             return Some(PathBuf::from(d));
@@ -105,17 +126,26 @@ pub mod file {
         if mac {
             return home.map(|h| h.join("Library").join("Application Support").join("vfield"));
         }
-        set("XDG_DATA_HOME").map(|d| PathBuf::from(d).join("vfield")).or_else(|| home.map(|h| h.join(".local").join("share").join("vfield")))
+        set("XDG_DATA_HOME")
+            .map(|d| PathBuf::from(d).join("vfield"))
+            .or_else(|| home.map(|h| h.join(".local").join("share").join("vfield")))
     }
 
     pub fn default_dir() -> PathBuf {
-        save_dir(&|k| std::env::var(k).ok(), cfg!(windows), cfg!(target_os = "macos")).unwrap_or_else(|| PathBuf::from("."))
+        save_dir(
+            &|k| std::env::var(k).ok(),
+            cfg!(windows),
+            cfg!(target_os = "macos"),
+        )
+        .unwrap_or_else(|| PathBuf::from("."))
     }
 
     /// Reads `dir/FILE`; if there is none yet, the old progress file in the current directory (so a player who
     /// updates keeps what they had). `None` when neither exists or can be read.
     pub fn read_from(dir: &Path, legacy_dir: &Path) -> Option<String> {
-        std::fs::read_to_string(dir.join(FILE)).or_else(|_| std::fs::read_to_string(legacy_dir.join(LEGACY_FILE))).ok()
+        std::fs::read_to_string(dir.join(FILE))
+            .or_else(|_| std::fs::read_to_string(legacy_dir.join(LEGACY_FILE)))
+            .ok()
     }
 
     /// Writes `dir/FILE` by writing a sibling and renaming it over the old one, so a crash mid-write cannot leave

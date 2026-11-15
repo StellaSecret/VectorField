@@ -13,7 +13,13 @@ fn v(p: V2) -> String {
     format!("({}, {})", n(p.x), n(p.y))
 }
 fn rect(r: &Rect) -> String {
-    format!("x in [{}, {}], y in [{}, {}]", n(r.min.x), n(r.max.x), n(r.min.y), n(r.max.y))
+    format!(
+        "x in [{}, {}], y in [{}, {}]",
+        n(r.min.x),
+        n(r.max.x),
+        n(r.min.y),
+        n(r.max.y)
+    )
 }
 fn zone(z: &Zone) -> String {
     match z {
@@ -90,7 +96,46 @@ fn rules(l: &Level) -> Vec<String> {
             };
             vec!["mechanic: **Experiment**".to_string(), format!("fixed start {}", v(*start)), format!("intensity range [{}, {}]", n(range.0), n(range.1)), format!("challenge: {}", ch)]
         }
-        Rules::Synchronize { starts, goals, period, max_delay, conds } => {
+        Rules::Scout(r) => {
+            use crate::level::ScoutAct;
+            // one sentence per component of the final choice
+            let describe = |act: &ScoutAct, in_seq: bool| -> String {
+                let goal_at = |g: &usize| v(l.regions[*g].center);
+                match act {
+                    ScoutAct::Exit => format!("call which of {} exits the main probe will take: {}", r.exits.len(), r.exits.iter().map(|&i| format!("{} at {}", l.regions[i].label, v(l.regions[i].center))).collect::<Vec<_>>().join(", ")),
+                    ScoutAct::Release { starts, goal } => format!("choose the release slot of the main probe from {} numbered slots ({}), which must reach the target at {}", starts.len(), starts.iter().enumerate().map(|(i, p)| format!("{} at {}", i + 1, v(*p))).collect::<Vec<_>>().join(", "), goal_at(goal)),
+                    ScoutAct::Cancel { sites, goal } => format!("choose one source to add from {} numbered options{} ({}), same strength and width as the hidden ones; the probe from {} must reach the target at {}", sites.len() + in_seq as usize, if in_seq { ", the last being none" } else { "" }, sites.iter().enumerate().map(|(i, (k, p))| format!("{} {} at {}", i + 1, k.name(), v(*p))).collect::<Vec<_>>().join(", "), v(r.start), goal_at(goal)),
+                    ScoutAct::Plan { plans, goal, dirs, strength, beat_time } => format!("choose one of {} fixed gust plans{} (strength {}, {} s per beat; {}) so that the probe from {} reaches the target at {}", plans.len() + in_seq as usize, if in_seq { ", the last being no gust" } else { "" }, n(*strength), n(*beat_time), plans.iter().enumerate().map(|(i, p)| format!("{}: {}", i + 1, p.iter().enumerate().filter_map(|(b, a)| a.map(|d| format!("{} at beat {}", dirs.name(d), b + 1))).collect::<Vec<_>>().join(", "))).collect::<Vec<_>>().join("; "), v(r.start), goal_at(goal)),
+                    ScoutAct::Phase { phases, goal } => format!("choose the launch phase of the main probe from {} numbered options ({} s; the first is the default), which must reach the target at {}", phases.len(), phases.iter().map(|p| n(*p)).collect::<Vec<_>>().join(", "), goal_at(goal)),
+                    ScoutAct::Dial { levels, goal } => format!("choose the dial setting from {} numbered options ({}; the first is the default; hidden sources ignore the dial), so that the probe reaches the target at {}", levels.len(), levels.iter().map(|p| n(*p)).collect::<Vec<_>>().join(", "), goal_at(goal)),
+                    ScoutAct::Seq(_) => unreachable!(),
+                }
+            };
+            let (mech, act) = match &r.act {
+                ScoutAct::Exit => ("Scout, then call (Survey + Predict)", format!("then {}; the call is committed before the probe flies", describe(&r.act, false))),
+                ScoutAct::Release { .. } => ("Scout, then release (Survey + Position)", format!("then {}; the choice is committed before the probe flies", describe(&r.act, false))),
+                ScoutAct::Cancel { .. } => ("Scout, then cancel (Survey + Shape)", format!("then {}; the choice is committed before the probe flies", describe(&r.act, false))),
+                ScoutAct::Plan { .. } => ("Scout, then steer (Survey + Steer)", format!("then {}; the choice is committed before the probe flies", describe(&r.act, false))),
+                ScoutAct::Phase { .. } => ("Scout, then time it (Survey + Tempo)", format!("then {}; the choice is committed before the probe flies", describe(&r.act, false))),
+                ScoutAct::Dial { .. } => ("Scout, then set the dial (Survey + Experiment)", format!("then {}; the choice is committed before the probe flies", describe(&r.act, false))),
+                ScoutAct::Seq(acts) => ("Scout, then act in several steps (Survey plus more than one other mechanic)", format!("then, one after another: {}; all the choices are committed together and one flight judges them", acts.iter().enumerate().map(|(i, a)| format!("({}) {}", i + 1, describe(a, true))).collect::<Vec<_>>().join("; "))),
+            };
+            let probe = match &r.act {
+                ScoutAct::Exit => format!("the main probe starts at {}", v(r.start)),
+                _ => format!("the main probe starts at {} unless a choice moves it", v(r.start)),
+            };
+            vec![
+                format!("mechanic: **{}**", mech),
+                probe,
+                "the field layers above are the visible background; a hidden source is added to it in every flight".to_string(),
+                format!("hidden sources (one is drawn at random each attempt, never the one just used; strength {}, width {}): {}", n(r.k), n(r.sigma), r.pool.iter().map(|(k, p)| format!("{} at {}", k.name(), v(*p))).collect::<Vec<_>>().join(", ")),
+                format!("up to {} scouts per attempt, started anywhere in [{}, {}] x [{}, {}], each flying {} s; the push each feels is shown (as in Survey)", r.scouts, n(r.zone.min.x), n(r.zone.max.x), n(r.zone.min.y), n(r.zone.max.y), n(r.scout_time)),
+                act,
+                format!("{} correct choices in a row complete the level; a wrong one resets the streak", r.streak),
+                format!("run time limit: {} s", n(l.max_time)),
+            ]
+        }
+        Rules::Synchronize { starts, goals, period, max_delay, conds, sources: sync_sources, start_slots } => {
             let mut lines = vec![
                 "mechanic: **Synchronize**".to_string(),
                 format!("{} probes fly the same field; the player chooses only each probe's release delay (0 to {} s, in steps of {} s; the field clock at release)", starts.len(), n(*max_delay), n(crate::modes::SYNC_DELAY_STEP)),
@@ -102,10 +147,16 @@ fn rules(l: &Level) -> Vec<String> {
             for c in conds {
                 lines.push(format!("condition: probe {} must enter region {} ({}) between {:+} and {:+} s after probe {} enters region {} ({})", c.b, c.rb, l.regions[c.rb].label, n(c.lo), n(c.hi), c.a, c.ra, l.regions[c.ra].label));
             }
+            if let Some(s) = sync_sources {
+                lines.push(format!("sources are also placed (they change the field every probe flies): up to {} of {} (strength {}, width {}), inside the placement area", s.max, s.kinds.iter().map(|k| k.name()).collect::<Vec<_>>().join(" / "), n(s.k), n(s.sigma)));
+            }
+            if let Some((probe, slots)) = start_slots {
+                lines.push(format!("probe {} is also released from one of {} numbered start slots (slot 1 is its default): {}", probe, slots.len(), slots.iter().enumerate().map(|(i, p)| format!("{} at {}", i + 1, v(*p))).collect::<Vec<_>>().join(", ")));
+            }
             lines.push(format!("run time limit: {} s per probe", n(l.max_time)));
             lines
         }
-        Rules::Shape { start, goal, zones, kinds, sources, k, sigma } => vec![
+        Rules::Shape { start, goal, zones, kinds, sources, k, sigma, period, intensity } => vec![
             "mechanic: **Shape**".to_string(),
             "the field layers above are the fixed background; the player adds sources to them".to_string(),
             format!("probe starts at {}; it must reach region {} ({}), and any hazard ends the run", v(*start), goal, l.regions[*goal].label),
@@ -113,6 +164,14 @@ fn rules(l: &Level) -> Vec<String> {
             format!("up to {} source(s), each with strength k = {} and width sigma = {} (Gauss terms); none on a target or obstacle, none within {} of another", sources, n(*k), n(*sigma), n(crate::modes::SHAPE_MIN_SEPARATION)),
             format!("placement areas: {}", zones.iter().map(zone).collect::<Vec<_>>().join("; ")),
             "sources can be moved and removed freely; launching is free and repeatable; no path is shown before a launch".to_string(),
+            match period {
+                Some(p) => format!("launch phase is also chosen, period {} s (sources do not change with it)", n(*p)),
+                None => "launch phase: fixed (0)".into(),
+            },
+            match intensity {
+                Some((a, b)) => format!("background intensity is also chosen, range [{}, {}] (sources ignore it)", n(*a), n(*b)),
+                None => format!("intensity: fixed ({})", n(l.field.intensity)),
+            },
             format!("run time limit: {} s", n(l.max_time)),
         ],
         Rules::Survey { zone: z, free, scouts, k, sigma, tol, rays, band, preview, pool, kinds, partners, goal } => vec![
@@ -156,12 +215,24 @@ fn rules(l: &Level) -> Vec<String> {
             ),
 
         ],
-        Rules::Steer { start, beats, gust_budget, gust_strength, dirs, beat_time, goal } => vec![
+        Rules::Steer { start, beats, gust_budget, gust_strength, dirs, beat_time, goal, period, start_zone, sources } => vec![
             "mechanic: **Steer**".to_string(),
             format!("fixed start {}", v(*start)),
             format!("beats {}; gust budget {}; gust strength {}; beat length {} s", beats, gust_budget, n(*gust_strength), n(*beat_time)),
             format!("gust directions: {}", if *dirs == GustDirs::Eight { "8 (E, NE, N, NW, W, SW, S, SE)" } else { "4 (E, N, W, S)" }),
             format!("goal region {} ({})", goal, l.regions[*goal].label),
+            match period {
+                Some(p) => format!("launch phase is also chosen before the first beat, period {} s", n(*p)),
+                None => "launch phase: fixed (0)".into(),
+            },
+            match start_zone {
+                Some(z) => format!("start point is also chosen inside [{}, {}] x [{}, {}] before the first beat", n(z.min.x), n(z.max.x), n(z.min.y), n(z.max.y)),
+                None => "start point: fixed".into(),
+            },
+            match sources {
+                Some(s) => format!("sources are also placed before the first beat: up to {} of {} (strength {}, width {}), inside the placement area", s.max, s.kinds.iter().map(|k| k.name()).collect::<Vec<_>>().join(" / "), n(s.k), n(s.sigma)),
+                None => "sources: none".into(),
+            },
         ],
     }
 }
@@ -172,15 +243,30 @@ pub fn render() -> String {
     s.push_str("Generated from `src/levels.rs` by `src/catalog.rs`; do not edit by hand. Regenerate with\n`cargo run --release --bin catalog > docs/LEVEL_CATALOG.md` (a test fails if this file is out of date).\n\n");
     s.push_str("World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6], y in [-4, 4]. Region indices are positions in the level's region list. Levels are listed in play order.\n");
     for l in levels::all() {
-        s.push_str(&format!("\n## {} - {} ({})\n\n", l.id, l.title, l.chapter.name()));
+        s.push_str(&format!(
+            "\n## {} - {} ({})\n\n",
+            l.id,
+            l.title,
+            l.chapter.name()
+        ));
         s.push_str(&format!("- objective: {}\n", l.objective));
         for (i, h) in l.hints.iter().enumerate() {
             s.push_str(&format!("- hint {}: {}\n", i + 1, h));
         }
-        s.push_str(&format!("- bounds: {}; simulation time limit: {} s; seed: {}\n", rect(&l.bounds), n(l.max_time), l.seed));
+        s.push_str(&format!(
+            "- bounds: {}; simulation time limit: {} s; seed: {}\n",
+            rect(&l.bounds),
+            n(l.max_time),
+            l.seed
+        ));
         s.push_str("- field layers (summed; a *tunable* layer is multiplied by the intensity):\n");
         for (i, ly) in l.field.layers.iter().enumerate() {
-            s.push_str(&format!("  {}. {} - {}\n", i + 1, if ly.tunable { "tunable" } else { "fixed" }, term(&ly.term, l.id)));
+            s.push_str(&format!(
+                "  {}. {} - {}\n",
+                i + 1,
+                if ly.tunable { "tunable" } else { "fixed" },
+                term(&ly.term, l.id)
+            ));
         }
         if l.field.layers.iter().any(|x| x.tunable) {
             s.push_str(&format!("  (default intensity {})\n", n(l.field.intensity)));
@@ -193,7 +279,14 @@ pub fn render() -> String {
                 RegionKind::Hazard => "hazard",
                 RegionKind::Gate => "gate",
             };
-            s.push_str(&format!("  {}. {} '{}' centre {} radius {}\n", i, kind, r.label, v(r.center), n(r.radius)));
+            s.push_str(&format!(
+                "  {}. {} '{}' centre {} radius {}\n",
+                i,
+                kind,
+                r.label,
+                v(r.center),
+                n(r.radius)
+            ));
         }
         s.push_str("- rules:\n");
         for r in rules(&l) {

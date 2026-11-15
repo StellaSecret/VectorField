@@ -15,14 +15,14 @@ when the player does X" and "what exactly can the player do", with enough detail
 | [04-tempo.md](04-tempo.md) | **Tempo**: "When should I launch?" |
 | [05-experiment.md](05-experiment.md) | **Experiment**: "How does the system behave?" |
 | [06-steer.md](06-steer.md) | **Steer**: "What should I do next?" |
-| [07-combinations.md](07-combinations.md) | How the six combination levels compose the mechanics |
+| [07-combinations.md](07-combinations.md) | How the combination levels compose the mechanics, and the bar a two-decision level must meet |
 | [08-comparison.md](08-comparison.md) | The eight mechanics side by side, and how they differ |
 | [09-survey.md](09-survey.md) | **Survey**: "Where is the hidden source?" |
 | [10-shape.md](10-shape.md) | **Shape**: "How should I change the field?" |
 | [11-synchronize.md](11-synchronize.md) | **Synchronize**: "How must these probes be coordinated?" |
 | [DESIGN.md](DESIGN.md) | The design rationale: architecture, why each mechanic exists, how levels were validated |
 | [LEVEL_CATALOG.md](LEVEL_CATALOG.md) | **Generated**: every parameter of every level (fields, regions, rules) |
-| [STEER_VALIDATION.md](STEER_VALIDATION.md), [SURVEY_VALIDATION.md](SURVEY_VALIDATION.md), [SHAPE_VALIDATION.md](SHAPE_VALIDATION.md), [SYNC_VALIDATION.md](SYNC_VALIDATION.md) | **Generated**: the Steer, Survey, Shape and Synchronize validation reports (`cargo run --release --bin report -- --steer` / `-- --survey` / `-- --shape` / `-- --sync`) |
+| [STEER_VALIDATION.md](STEER_VALIDATION.md), [SURVEY_VALIDATION.md](SURVEY_VALIDATION.md), [SHAPE_VALIDATION.md](SHAPE_VALIDATION.md), [SYNC_VALIDATION.md](SYNC_VALIDATION.md), [COMBO_VALIDATION.md](COMBO_VALIDATION.md) | **Generated**: the Steer, Survey, Shape, Synchronize and combination validation reports (`cargo run --release --bin report -- --steer` / `-- --survey` / `-- --shape` / `-- --sync` / `-- --combo`) |
 
 ## How each mechanic document is organised
 

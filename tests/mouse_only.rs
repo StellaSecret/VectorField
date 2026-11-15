@@ -30,6 +30,26 @@ const WITH_BUTTON: &[(&str, &str)] = &[
     ("Key2", "i + 1, k.short()"), // the numbered kind buttons of Shape (and the probe rows of Synchronize)
     ("Key3", "i + 1, k.short()"), // the numbered kind buttons of Shape (and the probe rows of Synchronize)
     ("Key4", "i + 1, k.short()"), // the numbered kind buttons of Shape (and the probe rows of Synchronize)
+    (
+        "Key5",
+        "let clicked = ui::button( inp, rr, &label, scouting,",
+    ), // the numbered option buttons of the scout-then-act levels
+    (
+        "Key6",
+        "let clicked = ui::button( inp, rr, &label, scouting,",
+    ), // the numbered option buttons of the scout-then-act levels
+    (
+        "Key7",
+        "let clicked = ui::button( inp, rr, &label, scouting,",
+    ), // the numbered option buttons of the scout-then-act levels
+    (
+        "Key8",
+        "let clicked = ui::button( inp, rr, &label, scouting,",
+    ), // the numbered option buttons of the scout-then-act levels
+    (
+        "Key9",
+        "let clicked = ui::button( inp, rr, &label, scouting,",
+    ), // the numbered option buttons of the scout-then-act levels
     ("Tab", "Marker (M)"),
 ];
 
@@ -65,7 +85,10 @@ fn keys_used() -> BTreeSet<String> {
     let mut rest = APP;
     while let Some(i) = rest.find("KeyCode::") {
         rest = &rest[i + "KeyCode::".len()..];
-        let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .collect();
         out.insert(name);
     }
     out
@@ -73,7 +96,11 @@ fn keys_used() -> BTreeSet<String> {
 
 #[test]
 fn every_key_the_game_listens_for_has_a_mouse_equivalent() {
-    let known: BTreeSet<&str> = WITH_BUTTON.iter().map(|(k, _)| *k).chain(MOUSE_COVERS.iter().map(|(k, _)| *k)).collect();
+    let known: BTreeSet<&str> = WITH_BUTTON
+        .iter()
+        .map(|(k, _)| *k)
+        .chain(MOUSE_COVERS.iter().map(|(k, _)| *k))
+        .collect();
     for k in keys_used() {
         assert!(known.contains(k.as_str()), "KeyCode::{k} is used with no on-screen equivalent: give it a button (and list it in tests/mouse_only.rs)");
     }
@@ -81,8 +108,12 @@ fn every_key_the_game_listens_for_has_a_mouse_equivalent() {
 
 #[test]
 fn the_buttons_that_replace_the_keys_exist() {
+    let app = APP.split_whitespace().collect::<Vec<_>>().join(" ");
     for (key, label) in WITH_BUTTON {
-        assert!(APP.contains(label), "{key}: no button labelled {label:?} in app.rs");
+        assert!(
+            app.contains(label),
+            "{key}: no button labelled {label:?} in app.rs"
+        );
     }
 }
 
@@ -98,7 +129,14 @@ fn the_settings_buttons_are_drawn_after_the_game_frame() {
     // `end_area` repaints the header strip, so buttons drawn before it vanish (found by looking at the running game)
     let frame = APP.find("fn play_frame").unwrap();
     let body = &APP[frame..];
-    let area = body.find("Game::Sync(g) => sync_frame").expect("the frame dispatch");
-    let buttons = body.find("settings_buttons(inp, prefs, 996.0").expect("the settings buttons");
-    assert!(buttons > area, "settings buttons must be drawn after the game frame");
+    let area = body
+        .find("Game::Sync(g) => sync_frame")
+        .expect("the frame dispatch");
+    let buttons = body
+        .find("settings_buttons(inp, prefs, 996.0")
+        .expect("the settings buttons");
+    assert!(
+        buttons > area,
+        "settings buttons must be drawn after the game frame"
+    );
 }

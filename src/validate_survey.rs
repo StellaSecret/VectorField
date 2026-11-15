@@ -12,6 +12,7 @@
 //! * `EPS_FINE`: a difference a careful player could see on screen; a level must be *solvable* at it;
 //! * `EPS_COARSE`: the precision of *mental* inference, a difficulty parameter. The level should still
 //!   be non-trivial (free scout alone does not solve it) and solvable by an adaptive player at it.
+//!
 //! The commit tolerance (`SurveySpec::tol`) is separate again.
 //!
 //! **Players** compared: a fixed pattern of scouts, uniformly random scouts, an adaptive player that
@@ -62,10 +63,16 @@ impl Model {
     pub fn new(level: &Level) -> Model {
         let spec = SurveySpec::from_level(level);
         let mut hyp = vec![];
-        let (nx, ny) = ((HYP_RECT.width() / HYP_STEP).round() as usize, (HYP_RECT.height() / HYP_STEP).round() as usize);
+        let (nx, ny) = (
+            (HYP_RECT.width() / HYP_STEP).round() as usize,
+            (HYP_RECT.height() / HYP_STEP).round() as usize,
+        );
         for i in 0..=nx {
             for j in 0..=ny {
-                hyp.push(v2(HYP_RECT.min.x + HYP_STEP * i as f64, HYP_RECT.min.y + HYP_STEP * j as f64));
+                hyp.push(v2(
+                    HYP_RECT.min.x + HYP_STEP * i as f64,
+                    HYP_RECT.min.y + HYP_STEP * j as f64,
+                ));
             }
         }
         let mut starts = vec![];
@@ -86,7 +93,14 @@ impl Model {
                 obs[(s * nh + h) * NS..(s * nh + h + 1) * NS].copy_from_slice(&tr);
             }
         }
-        Model { spec, hyp, starts, nh, ns, obs }
+        Model {
+            spec,
+            hyp,
+            starts,
+            nh,
+            ns,
+            obs,
+        }
     }
 
     pub fn free_index(&self) -> usize {
@@ -124,7 +138,9 @@ impl Model {
 
     pub fn centroid(&self, c: &[usize]) -> V2 {
         let n = c.len() as f64;
-        let (x, y) = c.iter().fold((0.0, 0.0), |a, &h| (a.0 + self.hyp[h].x, a.1 + self.hyp[h].y));
+        let (x, y) = c.iter().fold((0.0, 0.0), |a, &h| {
+            (a.0 + self.hyp[h].x, a.1 + self.hyp[h].y)
+        });
         v2(x / n, y / n)
     }
     /// Would committing the centroid of `c` be accepted?
@@ -162,7 +178,10 @@ impl Model {
     pub fn best_scout(&self, ind: &[bool], c: &[usize], used: &[usize]) -> usize {
         let mut best = (f64::INFINITY, 0);
         for s in 0..self.ns - 1 {
-            if used.iter().any(|&u| self.starts[u].dist(self.starts[s]) < MIN_SCOUT_SEPARATION) {
+            if used
+                .iter()
+                .any(|&u| self.starts[u].dist(self.starts[s]) < MIN_SCOUT_SEPARATION)
+            {
                 continue;
             }
             let mut sum = 0usize;
@@ -182,7 +201,14 @@ impl Model {
     }
 
     fn lattice_near(&self, p: V2) -> usize {
-        (0..self.ns - 1).min_by(|&a, &b| self.starts[a].dist(p).partial_cmp(&self.starts[b].dist(p)).unwrap()).unwrap()
+        (0..self.ns - 1)
+            .min_by(|&a, &b| {
+                self.starts[a]
+                    .dist(p)
+                    .partial_cmp(&self.starts[b].dist(p))
+                    .unwrap()
+            })
+            .unwrap()
     }
 
     /// Candidates left after the free scout alone.
@@ -194,7 +220,15 @@ impl Model {
     /// Is there any set of at most `max_scouts` scouts (besides the free one) after which the centroid
     /// of the surviving candidates is accepted? Exhaustive over the lattice.
     pub fn oracle_solves_within(&self, source: V2, d: &[f64], eps: f64, max_scouts: usize) -> bool {
-        fn dfs(m: &Model, source: V2, d: &[f64], eps: f64, c: &[usize], depth: usize, from: usize) -> bool {
+        fn dfs(
+            m: &Model,
+            source: V2,
+            d: &[f64],
+            eps: f64,
+            c: &[usize],
+            depth: usize,
+            from: usize,
+        ) -> bool {
             if m.ok(c, source) {
                 return true;
             }
@@ -250,7 +284,13 @@ impl Model {
 
     /// A fixed, observation-independent pattern of scouts.
     pub fn fixed_pattern(&self, d: &[f64], eps: f64) -> Vec<usize> {
-        const PATTERN: [(f64, f64); 5] = [(-3.0, -2.0), (3.0, 2.0), (3.0, -2.0), (-3.0, 2.0), (0.0, 0.0)];
+        const PATTERN: [(f64, f64); 5] = [
+            (-3.0, -2.0),
+            (3.0, 2.0),
+            (3.0, -2.0),
+            (-3.0, 2.0),
+            (0.0, 0.0),
+        ];
         let mut c = self.after_free(d, eps);
         for &(x, y) in PATTERN.iter().take(self.spec.budget) {
             c = self.refine(&c, self.lattice_near(v2(x, y)), d, eps);
@@ -289,7 +329,11 @@ pub fn adaptive_play(level: &Level, model: &Model, ind: &[bool], attempt: usize,
     while g.scouts_left() > 0 {
         let s = model.best_scout(ind, &c, &used);
         used.push(s);
-        let traj = g.place_scout(model.starts[s]).expect("a lattice scout is always placeable").traj.clone();
+        let traj = g
+            .place_scout(model.starts[s])
+            .expect("a lattice scout is always placeable")
+            .traj
+            .clone();
         c = model.refine_with(&c, &model.devs(s, &traj), eps);
     }
     g.set_marker(model.centroid(&c)).unwrap();
@@ -317,7 +361,9 @@ pub fn truth_report(m: &Model, ind_coarse: &[bool], source: V2) -> TruthReport {
     let c0 = m.after_free(&d, EPS_COARSE);
     let mut rng = Lcg(0x5eed ^ (source.x.to_bits() ^ source.y.to_bits().rotate_left(7)));
     let draws = 20;
-    let random_ok = (0..draws).filter(|_| m.ok(&m.random_scouts(&d, EPS_COARSE, &mut rng), source)).count();
+    let random_ok = (0..draws)
+        .filter(|_| m.ok(&m.random_scouts(&d, EPS_COARSE, &mut rng), source))
+        .count();
     TruthReport {
         source,
         free_candidates: c0.len(),
@@ -349,12 +395,20 @@ pub struct Population {
 pub fn random_sources(n: usize, seed: u64) -> Vec<V2> {
     let mut rng = Lcg(seed);
     let mut unit = move || (rng.next() % 1_000_000) as f64 / 1e6;
-    (0..n).map(|_| v2(HYP_RECT.min.x + HYP_RECT.width() * unit(), HYP_RECT.min.y + HYP_RECT.height() * unit())).collect()
+    (0..n)
+        .map(|_| {
+            v2(
+                HYP_RECT.min.x + HYP_RECT.width() * unit(),
+                HYP_RECT.min.y + HYP_RECT.height() * unit(),
+            )
+        })
+        .collect()
 }
 
 pub fn population(m: &Model, ind: &[bool], eps: f64, truths: &[V2]) -> Population {
     let mut rng = Lcg(2024);
-    let (mut free, mut amb, mut grid, mut rand, mut adap, mut one, mut unsolv, mut draws) = (0, 0, 0, 0, 0, 0, 0, 0);
+    let (mut free, mut amb, mut grid, mut rand, mut adap, mut one, mut unsolv, mut draws) =
+        (0, 0, 0, 0, 0, 0, 0, 0);
     for &t in truths {
         let d = m.truth_devs(t);
         let c0 = m.after_free(&d, eps);
@@ -370,7 +424,16 @@ pub fn population(m: &Model, ind: &[bool], eps: f64, truths: &[V2]) -> Populatio
         unsolv += (!m.oracle_solves(t, &d, eps)) as usize;
     }
     let n = truths.len() as f64;
-    Population { n: truths.len(), free_only: free as f64 / n, ambiguous_after_free: amb as f64 / n, grid: grid as f64 / n, random: rand as f64 / draws as f64, adaptive: adap as f64 / n, adaptive_one: one as f64 / n, unsolvable: unsolv as f64 / n }
+    Population {
+        n: truths.len(),
+        free_only: free as f64 / n,
+        ambiguous_after_free: amb as f64 / n,
+        grid: grid as f64 / n,
+        random: rand as f64 / draws as f64,
+        adaptive: adap as f64 / n,
+        adaptive_one: one as f64 / n,
+        unsolvable: unsolv as f64 / n,
+    }
 }
 
 pub struct LevelCheck {
@@ -382,16 +445,28 @@ pub struct LevelCheck {
 pub fn check(level: &Level, random_truths: usize) -> LevelCheck {
     let m = Model::new(level);
     let (ind_c, ind_f) = (m.indist(EPS_COARSE), m.indist(EPS_FINE));
-    let pool = m.spec.pool.iter().map(|&s| truth_report(&m, &ind_c, s)).collect();
+    let pool = m
+        .spec
+        .pool
+        .iter()
+        .map(|&s| truth_report(&m, &ind_c, s))
+        .collect();
     let truths = random_sources(random_truths, 77);
-    LevelCheck { pool, coarse: population(&m, &ind_c, EPS_COARSE, &truths), fine: population(&m, &ind_f, EPS_FINE, &truths) }
+    LevelCheck {
+        pool,
+        coarse: population(&m, &ind_c, EPS_COARSE, &truths),
+        fine: population(&m, &ind_f, EPS_FINE, &truths),
+    }
 }
 
 /// Hard requirement: every hidden position the level can use is solvable within the scout budget at
 /// the fine threshold (checked exhaustively over lattice scouts).
 pub fn solvable(level: &Level) -> bool {
     let m = Model::new(level);
-    m.spec.pool.iter().all(|&s| m.oracle_solves(s, &m.truth_devs(s), EPS_FINE))
+    m.spec
+        .pool
+        .iter()
+        .all(|&s| m.oracle_solves(s, &m.truth_devs(s), EPS_FINE))
 }
 
 pub fn summarize(level: &Level) -> String {
@@ -430,12 +505,37 @@ pub fn report(levels: &[Level], random_truths: usize) -> String {
         s.push_str(&format!("\n## {} - {}\n\nscouts {}, trail {} s, source strength k = {}, width sigma = {}, commit tolerance {}, candidates on a {} grid, precision thresholds fine {} / coarse {}.\n\n", l.id, l.title, spec.budget, l.max_time, spec.k, spec.sigma, spec.tol, HYP_STEP, EPS_FINE, EPS_COARSE));
         s.push_str("### Authored hidden positions\n\n| source | candidates left after free scout | their spread | free scout alone solves | solvable (fine) | solvable (coarse) | scouts the adaptive player needs (coarse) | adaptive (coarse) | fixed pattern (coarse) | random scouts (coarse) |\n|---|---|---|---|---|---|---|---|---|---|\n");
         for t in &c.pool {
-            let need = t.adaptive_needs_coarse.map_or("-".to_string(), |n| n.to_string());
-            s.push_str(&format!("| ({}, {}) | {} | {:.1} | {} | {} | {} | {} | {} | {} | {:.0}% |\n", t.source.x, t.source.y, t.free_candidates, t.free_diameter, yn(t.free_solves), yn(t.solvable_fine), yn(t.solvable_coarse), need, yn(t.adaptive_coarse), yn(t.grid_coarse), 100.0 * t.random_coarse));
+            let need = t
+                .adaptive_needs_coarse
+                .map_or("-".to_string(), |n| n.to_string());
+            s.push_str(&format!(
+                "| ({}, {}) | {} | {:.1} | {} | {} | {} | {} | {} | {} | {:.0}% |\n",
+                t.source.x,
+                t.source.y,
+                t.free_candidates,
+                t.free_diameter,
+                yn(t.free_solves),
+                yn(t.solvable_fine),
+                yn(t.solvable_coarse),
+                need,
+                yn(t.adaptive_coarse),
+                yn(t.grid_coarse),
+                100.0 * t.random_coarse
+            ));
         }
         s.push_str(&format!("\n### {} random continuous sources\n\nSuccess = the centroid of the surviving candidates is within the commit tolerance. \"Unsolvable\" = no combination of {} lattice scouts achieves that.\n\n| precision | free scout alone | still ambiguous after it | fixed pattern | random scouts | adaptive (1 scout) | adaptive (full budget) | unsolvable |\n|---|---|---|---|---|---|---|---|\n", c.coarse.n, spec.budget));
         for (name, p) in [("fine", &c.fine), ("coarse", &c.coarse)] {
-            s.push_str(&format!("| {} | {:.0}% | {:.0}% | {:.0}% | {:.0}% | {:.0}% | {:.0}% | {:.0}% |\n", name, 100.0 * p.free_only, 100.0 * p.ambiguous_after_free, 100.0 * p.grid, 100.0 * p.random, 100.0 * p.adaptive_one, 100.0 * p.adaptive, 100.0 * p.unsolvable));
+            s.push_str(&format!(
+                "| {} | {:.0}% | {:.0}% | {:.0}% | {:.0}% | {:.0}% | {:.0}% | {:.0}% |\n",
+                name,
+                100.0 * p.free_only,
+                100.0 * p.ambiguous_after_free,
+                100.0 * p.grid,
+                100.0 * p.random,
+                100.0 * p.adaptive_one,
+                100.0 * p.adaptive,
+                100.0 * p.unsolvable
+            ));
         }
     }
     s
@@ -448,7 +548,6 @@ fn yn(b: bool) -> &'static str {
         "no"
     }
 }
-
 
 // ---------------------------------------------------------------------------------------------------------------
 // The arrow-reading model: what a player can do with the arrows on screen.
@@ -502,23 +601,54 @@ pub fn fit_lines(lines: &[(V2, V2, f64)]) -> Option<(V2, f64)> {
 /// lines at right angles cross, a swirl (counter-clockwise or clockwise by the sense of the arrows about the crossing).
 /// Whichever family of lines fits better wins.
 pub fn read_kind(arrows: &[(V2, V2)]) -> Option<(SourceKind, V2)> {
-    let axial: Vec<_> = arrows.iter().map(|&(p, u)| (p, u * (1.0 / u.len()), u.len().powi(2))).collect();
-    let normal: Vec<_> = arrows.iter().map(|&(p, u)| (p, u.perp() * (1.0 / u.len()), u.len().powi(2))).collect();
+    let axial: Vec<_> = arrows
+        .iter()
+        .map(|&(p, u)| (p, u * (1.0 / u.len()), u.len().powi(2)))
+        .collect();
+    let normal: Vec<_> = arrows
+        .iter()
+        .map(|&(p, u)| (p, u.perp() * (1.0 / u.len()), u.len().powi(2)))
+        .collect();
     let (ea, ra) = fit_lines(&axial)?;
     let (en, rn) = fit_lines(&normal)?;
     if ra <= rn {
         let s: f64 = arrows.iter().map(|&(p, u)| u.dot(p - ea) / u.len()).sum();
-        Some((if s > 0.0 { SourceKind::Repeller } else { SourceKind::Attractor }, ea))
+        Some((
+            if s > 0.0 {
+                SourceKind::Repeller
+            } else {
+                SourceKind::Attractor
+            },
+            ea,
+        ))
     } else {
-        let s: f64 = arrows.iter().map(|&(p, u)| u.dot((p - en).perp()) / u.len()).sum();
-        Some((if s > 0.0 { SourceKind::SwirlCcw } else { SourceKind::SwirlCw }, en))
+        let s: f64 = arrows
+            .iter()
+            .map(|&(p, u)| u.dot((p - en).perp()) / u.len())
+            .sum();
+        Some((
+            if s > 0.0 {
+                SourceKind::SwirlCcw
+            } else {
+                SourceKind::SwirlCw
+            },
+            en,
+        ))
     }
 }
 
 /// How often the kind **and** the place read from the given scouts' arrows are right (kind named correctly, place within
 /// `tol` of `src`) when the arrows are read with `(bias, jitter)` degrees of error (bias drawn once per trail, jitter per
 /// arrow). Needs at least 3 arrows in all. Deterministic for a given `seed`.
-pub fn read_rate(tol: f64, src: V2, kind: SourceKind, scouts: &[&Vec<(V2, V2)>], (bias_deg, jitter_deg): (f64, f64), seed: u64, trials: usize) -> f64 {
+pub fn read_rate(
+    tol: f64,
+    src: V2,
+    kind: SourceKind,
+    scouts: &[&Vec<(V2, V2)>],
+    (bias_deg, jitter_deg): (f64, f64),
+    seed: u64,
+    trials: usize,
+) -> f64 {
     let mut rng = crate::modes::Lcg(seed);
     let mut gauss = || {
         let u1 = (rng.below(1_000_000) as f64 + 1.0) / 1_000_001.0;
@@ -535,7 +665,8 @@ pub fn read_rate(tol: f64, src: V2, kind: SourceKind, scouts: &[&Vec<(V2, V2)>],
                 read.push((p, v2(a.cos(), a.sin()) * u.len()));
             }
         }
-        if read.len() >= 3 && read_kind(&read).map_or(false, |(k, e)| k == kind && e.dist(src) <= tol) {
+        if read.len() >= 3 && read_kind(&read).is_some_and(|(k, e)| k == kind && e.dist(src) <= tol)
+        {
             hit += 1;
         }
     }
@@ -565,7 +696,11 @@ pub fn arrow_report(levels: &[Level]) -> String {
                 }
             }
         }
-        let verdict = if closest.0 > 2.0 * sp.tol { "no attempt can be passed by re-marking an earlier answer" } else { "**some attempt may be passable from memory of an earlier answer** (kinds can still differ)" };
+        let verdict = if closest.0 > 2.0 * sp.tol {
+            "no attempt can be passed by re-marking an earlier answer"
+        } else {
+            "**some attempt may be passable from memory of an earlier answer** (kinds can still differ)"
+        };
         s.push_str(&format!("Closest pair of positions: {:.2} (attempts {} and {}); twice the tolerance is {:.2}: {}.\n\n", closest.0, closest.1 + 1, closest.2 + 1, 2.0 * sp.tol, verdict));
         s.push_str("| # | kind | position | free scout shows | free alone (careful / by eye) | lateral 1 | lateral 2 | blind (careful / by eye) | best pair |\n|---|---|---|---|---|---|---|---|---|\n");
         let mut pts = vec![];
@@ -579,17 +714,43 @@ pub fn arrow_report(levels: &[Level]) -> String {
             let arr = |st: V2| sp.push_samples(&sp.fly_kind(src, kind, st));
             let free = arr(sp.free);
             let (fx, fy) = (sp.free.x + 3.0, sp.free.y);
-            let lat = |h: f64| read_rate(sp.tol, src, kind, &[&free, &arr(v2(fx, fy + h)), &arr(v2(fx, fy - h))], CAREFUL, 8 + i as u64, 200);
+            let lat = |h: f64| {
+                read_rate(
+                    sp.tol,
+                    src,
+                    kind,
+                    &[&free, &arr(v2(fx, fy + h)), &arr(v2(fx, fy - h))],
+                    CAREFUL,
+                    8 + i as u64,
+                    200,
+                )
+            };
             let free_c = read_rate(sp.tol, src, kind, &[&free], CAREFUL, 1 + i as u64, 200);
             let free_e = read_rate(sp.tol, src, kind, &[&free], BY_EYE, 1 + i as u64, 200);
             let cached: Vec<Vec<(V2, V2)>> = pts.iter().map(|&p| arr(p)).collect();
             let (mut care, mut eye, mut best, mut n) = (0.0, 0.0, 0.0f64, 0.0);
             for a in 0..pts.len() {
                 for b in a + 1..pts.len() {
-                    let c = read_rate(sp.tol, src, kind, &[&free, &cached[a], &cached[b]], CAREFUL, (i * 100_000 + a * 97 + b) as u64, 4);
+                    let c = read_rate(
+                        sp.tol,
+                        src,
+                        kind,
+                        &[&free, &cached[a], &cached[b]],
+                        CAREFUL,
+                        (i * 100_000 + a * 97 + b) as u64,
+                        4,
+                    );
                     care += c;
                     best = best.max(c);
-                    eye += read_rate(sp.tol, src, kind, &[&free, &cached[a], &cached[b]], BY_EYE, (i * 7_777 + a * 31 + b) as u64, 3);
+                    eye += read_rate(
+                        sp.tol,
+                        src,
+                        kind,
+                        &[&free, &cached[a], &cached[b]],
+                        BY_EYE,
+                        (i * 7_777 + a * 31 + b) as u64,
+                        3,
+                    );
                     n += 1.0;
                 }
             }
@@ -612,7 +773,11 @@ fn pair_distance(a: [V2; 2], b: [V2; 2]) -> f64 {
 }
 
 fn trail_deviation(a: &Trajectory, b: &Trajectory) -> f64 {
-    a.points.iter().zip(&b.points).map(|(p, q)| p.dist(*q)).fold(0.0, f64::max)
+    a.points
+        .iter()
+        .zip(&b.points)
+        .map(|(p, q)| p.dist(*q))
+        .fold(0.0, f64::max)
 }
 
 /// Identifiability for levels that hide two sources (Markdown). A hypothesis is a pair of points on a 1-unit lattice
@@ -633,7 +798,9 @@ pub fn pair_report(levels: &[Level]) -> String {
             continue;
         }
         s.push_str(&format!("\n### {} - {}\n\nsigma {}, strength {}, commit tolerance {}, {} paid scouts; goal {:?}.\n\n", l.id, l.title, sp.sigma, sp.k, sp.tol, 3, sp.goal));
-        let pairs: Vec<[V2; 2]> = (0..sp.pool.len()).map(|i| [sp.pool[i], sp.partners[i].unwrap()]).collect();
+        let pairs: Vec<[V2; 2]> = (0..sp.pool.len())
+            .map(|i| [sp.pool[i], sp.partners[i].unwrap()])
+            .collect();
         let mut closest = (f64::MAX, 0, 0);
         for i in 0..pairs.len() {
             for j in i + 1..pairs.len() {
@@ -651,13 +818,20 @@ pub fn pair_report(levels: &[Level]) -> String {
                 lattice.push(v2(x as f64, y as f64));
             }
         }
-        let hyps: Vec<[V2; 2]> = (0..lattice.len()).flat_map(|i| (i..lattice.len()).map(move |j| (i, j))).map(|(i, j)| [lattice[i], lattice[j]]).collect();
+        let hyps: Vec<[V2; 2]> = (0..lattice.len())
+            .flat_map(|i| (i..lattice.len()).map(move |j| (i, j)))
+            .map(|(i, j)| [lattice[i], lattice[j]])
+            .collect();
         for (i, &truth) in pairs.iter().enumerate() {
             let mid = (truth[0] + truth[1]) * 0.5;
             let ghost = [mid, mid];
             let fly = |h: &[V2; 2], st: V2| sp.fly_sources(h, kind, st);
             let observed = |st: V2| fly(&truth, st);
-            let consistent_with = |h: &[V2; 2], starts: &[V2]| starts.iter().all(|&st| trail_deviation(&observed(st), &fly(h, st)) <= eps);
+            let consistent_with = |h: &[V2; 2], starts: &[V2]| {
+                starts
+                    .iter()
+                    .all(|&st| trail_deviation(&observed(st), &fly(h, st)) <= eps)
+            };
             // free scout alone
             let (mut n_free, mut worst_free) = (0, 0.0f64);
             let free_obs = observed(sp.free);
@@ -668,14 +842,24 @@ pub fn pair_report(levels: &[Level]) -> String {
                 }
             }
             // naive: free scout and scouts to either side of the pair
-            let naive: Vec<V2> = std::iter::once(sp.free).chain([1.6, -1.6, 2.4, -2.4].iter().map(|dy| v2(-2.0, mid.y + dy)).filter(|p| p.y.abs() <= 3.4)).collect();
+            let naive: Vec<V2> = std::iter::once(sp.free)
+                .chain(
+                    [1.6, -1.6, 2.4, -2.4]
+                        .iter()
+                        .map(|dy| v2(-2.0, mid.y + dy))
+                        .filter(|p| p.y.abs() <= 3.4),
+                )
+                .collect();
             let ghost_naive = consistent_with(&ghost, &naive);
             // best three paid scouts from a pool
             let mut pool: Vec<V2> = vec![];
             for x in [-4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0] {
                 for dy in [-2.0, -1.0, 0.0, 1.0, 2.0] {
                     let p = v2(x, (mid.y + dy).clamp(-3.4, 3.4));
-                    if sp.zone.contains(p) && p.dist(sp.free) > 0.5 && !pool.iter().any(|q| q.dist(p) < 0.3) {
+                    if sp.zone.contains(p)
+                        && p.dist(sp.free) > 0.5
+                        && !pool.iter().any(|q| q.dist(p) < 0.3)
+                    {
                         pool.push(p);
                     }
                 }
@@ -684,11 +868,16 @@ pub fn pair_report(levels: &[Level]) -> String {
                 .chain(pool.iter().copied())
                 .map(|st| {
                     let o = observed(st);
-                    hyps.iter().map(|h| trail_deviation(&o, &fly(h, st)) <= eps).collect()
+                    hyps.iter()
+                        .map(|h| trail_deviation(&o, &fly(h, st)) <= eps)
+                        .collect()
                 })
                 .collect();
             // does the ghost (not on the lattice) agree with each candidate scout? A set must rule it out.
-            let ghost_ok: Vec<bool> = std::iter::once(sp.free).chain(pool.iter().copied()).map(|st| trail_deviation(&observed(st), &fly(&ghost, st)) <= eps).collect();
+            let ghost_ok: Vec<bool> = std::iter::once(sp.free)
+                .chain(pool.iter().copied())
+                .map(|st| trail_deviation(&observed(st), &fly(&ghost, st)) <= eps)
+                .collect();
             // a "near ghost" is a pair of lattice points within 1.0 of each other: to a player it is the same mistake
             let stacky: Vec<bool> = hyps.iter().map(|h| h[0].dist(h[1]) <= 1.0).collect();
             let mut best: Option<(f64, usize, [usize; 3])> = None;
@@ -709,18 +898,37 @@ pub fn pair_report(levels: &[Level]) -> String {
                         if near_ghost {
                             continue;
                         }
-                        if count > 0 && best.map_or(true, |(w, n, _)| worst < w || (worst == w && count < n)) {
+                        if count > 0
+                            && best.is_none_or(|(w, n, _)| worst < w || (worst == w && count < n))
+                        {
                             best = Some((worst, count, [a, b, c]));
                         }
                     }
                 }
             }
             let (worst, count, trio) = best.unwrap_or((f64::NAN, 0, [0, 0, 0]));
-            let starts: Vec<V2> = std::iter::once(sp.free).chain(trio.iter().map(|&k| pool[k])).collect();
+            let starts: Vec<V2> = std::iter::once(sp.free)
+                .chain(trio.iter().map(|&k| pool[k]))
+                .collect();
             let ghost_best = consistent_with(&ghost, &starts);
             let sep = truth[0].dist(truth[1]);
-            let trio_txt = trio.iter().map(|&k| format!("({:.1}, {:.1})", pool[k].x, pool[k].y)).collect::<Vec<_>>().join(" ");
-            s.push_str(&format!("| {} | {:.1} | {} / {:.1} | {} | {} | {} / {:.1} | {} |\n", i + 1, sep, n_free, worst_free, if ghost_naive { "yes" } else { "no" }, trio_txt, count, worst, if ghost_best { "**yes**" } else { "no" }));
+            let trio_txt = trio
+                .iter()
+                .map(|&k| format!("({:.1}, {:.1})", pool[k].x, pool[k].y))
+                .collect::<Vec<_>>()
+                .join(" ");
+            s.push_str(&format!(
+                "| {} | {:.1} | {} / {:.1} | {} | {} | {} / {:.1} | {} |\n",
+                i + 1,
+                sep,
+                n_free,
+                worst_free,
+                if ghost_naive { "yes" } else { "no" },
+                trio_txt,
+                count,
+                worst,
+                if ghost_best { "**yes**" } else { "no" }
+            ));
         }
     }
     s

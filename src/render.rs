@@ -35,14 +35,26 @@ pub fn c_zone() -> Color {
 }
 /// Historical-run colours for Experiment (cycled).
 pub fn run_color(i: usize) -> Color {
-    [rgb(86, 180, 233), rgb(240, 228, 66), rgb(204, 121, 167), rgb(0, 158, 115), rgb(213, 94, 0), rgb(230, 159, 0), rgb(120, 150, 255), rgb(210, 210, 210)][i % 8]
+    [
+        rgb(86, 180, 233),
+        rgb(240, 228, 66),
+        rgb(204, 121, 167),
+        rgb(0, 158, 115),
+        rgb(213, 94, 0),
+        rgb(230, 159, 0),
+        rgb(120, 150, 255),
+        rgb(210, 210, 210),
+    ][i % 8]
 }
 
 pub fn w2s(p: V2) -> Vec2 {
     vec2(AX + (p.x as f32 + 6.0) * PX, AY + (4.0 - p.y as f32) * PX)
 }
 pub fn s2w(s: Vec2) -> V2 {
-    V2 { x: ((s.x - AX) / PX - 6.0) as f64, y: (4.0 - (s.y - AY) / PX) as f64 }
+    V2 {
+        x: ((s.x - AX) / PX - 6.0) as f64,
+        y: (4.0 - (s.y - AY) / PX) as f64,
+    }
 }
 pub fn in_area(s: Vec2) -> bool {
     Rect::new(AX, AY, AW, AH).contains(s)
@@ -75,7 +87,10 @@ pub fn draw_field(field: &Field, t: f64, mode: usize, hc: bool) {
     let cell = sp as f32 * PX;
     for i in 0..nx {
         for j in 0..ny {
-            let p = V2 { x: -6.0 + sp * (i as f64 + 0.5), y: -4.0 + sp * (j as f64 + 0.5) };
+            let p = V2 {
+                x: -6.0 + sp * (i as f64 + 0.5),
+                y: -4.0 + sp * (j as f64 + 0.5),
+            };
             let v = field.eval(p, t);
             let s = v.len() as f32;
             if !s.is_finite() {
@@ -83,7 +98,11 @@ pub fn draw_field(field: &Field, t: f64, mode: usize, hc: bool) {
             }
             let c = w2s(p);
             let strength = (s / 3.0).min(1.0);
-            let col = if hc { alpha(rgb(210, 222, 245), 0.9) } else { alpha(rgb(120, 140, 175), 0.35 + 0.55 * strength) };
+            let col = if hc {
+                alpha(rgb(210, 222, 245), 0.9)
+            } else {
+                alpha(rgb(120, 140, 175), 0.35 + 0.55 * strength)
+            };
             if s < 0.02 {
                 draw_circle(c.x, c.y, 1.5, col);
                 continue;
@@ -95,7 +114,12 @@ pub fn draw_field(field: &Field, t: f64, mode: usize, hc: bool) {
             draw_line(tail.x, tail.y, tip.x, tip.y, th, col);
             let h = (len * 0.45).min(7.0);
             let n = vec2(-d.y, d.x);
-            draw_triangle(tip, tip - d * h + n * (h * 0.45), tip - d * h - n * (h * 0.45), col);
+            draw_triangle(
+                tip,
+                tip - d * h + n * (h * 0.45),
+                tip - d * h - n * (h * 0.45),
+                col,
+            );
         }
     }
 }
@@ -110,7 +134,14 @@ pub fn dashed_line(a: Vec2, b: Vec2, col: Color, th: f32) {
     let mut k = 0.0;
     while k < total {
         let e = (k + dash).min(total);
-        draw_line(a.x + d.x * k, a.y + d.y * k, a.x + d.x * e, a.y + d.y * e, th, col);
+        draw_line(
+            a.x + d.x * k,
+            a.y + d.y * k,
+            a.x + d.x * e,
+            a.y + d.y * e,
+            th,
+            col,
+        );
         k += dash + gap;
     }
 }
@@ -161,25 +192,50 @@ pub fn draw_region(r: &Region, selected: bool) {
             draw_line(c.x, c.y - 8.0, c.x, c.y + 8.0, 2.0, c_target());
         }
         RegionKind::Exit => {
-            let col = if selected { c_predict() } else { rgb(200, 206, 220) };
-            draw_circle(c.x, c.y, rad, alpha(col, if selected { 0.28 } else { 0.07 }));
+            let col = if selected {
+                c_predict()
+            } else {
+                rgb(200, 206, 220)
+            };
+            draw_circle(
+                c.x,
+                c.y,
+                rad,
+                alpha(col, if selected { 0.28 } else { 0.07 }),
+            );
             draw_circle_lines(c.x, c.y, rad, if selected { 5.0 } else { 3.0 }, col);
             // label offset towards the play-area centre so it stays visible for corner exits
             let o = w2s(vfield::v2(0.0, 0.0));
             let dir = (o - c).normalize_or_zero();
             let lp = c + dir * (rad * 0.45).min(rad - 20.0);
-            let lp = vec2(lp.x.clamp(AX + 20.0, AX + AW - 20.0), lp.y.clamp(AY + 20.0, AY + AH - 20.0));
+            let lp = vec2(
+                lp.x.clamp(AX + 20.0, AX + AW - 20.0),
+                lp.y.clamp(AY + 20.0, AY + AH - 20.0),
+            );
             text_c(&r.label.to_string(), lp.x, lp.y, 34.0, col);
         }
         RegionKind::Hazard => {
             draw_circle(c.x, c.y, rad, alpha(c_hazard(), 0.3));
-            let n = Vec2::new(std::f32::consts::FRAC_1_SQRT_2, std::f32::consts::FRAC_1_SQRT_2);
-            let d = Vec2::new(std::f32::consts::FRAC_1_SQRT_2, -std::f32::consts::FRAC_1_SQRT_2);
+            let n = Vec2::new(
+                std::f32::consts::FRAC_1_SQRT_2,
+                std::f32::consts::FRAC_1_SQRT_2,
+            );
+            let d = Vec2::new(
+                std::f32::consts::FRAC_1_SQRT_2,
+                -std::f32::consts::FRAC_1_SQRT_2,
+            );
             let mut off = -rad + 6.0;
             while off < rad {
                 let half = (rad * rad - off * off).max(0.0).sqrt();
                 let m = Vec2::new(c.x + n.x * off, c.y + n.y * off);
-                draw_line(m.x - d.x * half, m.y - d.y * half, m.x + d.x * half, m.y + d.y * half, 1.5, alpha(c_hazard(), 0.8));
+                draw_line(
+                    m.x - d.x * half,
+                    m.y - d.y * half,
+                    m.x + d.x * half,
+                    m.y + d.y * half,
+                    1.5,
+                    alpha(c_hazard(), 0.8),
+                );
                 off += 9.0;
             }
             draw_circle_lines(c.x, c.y, rad, 3.0, c_hazard());
@@ -188,7 +244,14 @@ pub fn draw_region(r: &Region, selected: bool) {
             for k in (0..28).step_by(2) {
                 let a0 = k as f32 / 28.0 * std::f32::consts::TAU;
                 let a1 = (k + 1) as f32 / 28.0 * std::f32::consts::TAU;
-                draw_line(c.x + rad * a0.cos(), c.y + rad * a0.sin(), c.x + rad * a1.cos(), c.y + rad * a1.sin(), 3.0, c_gate());
+                draw_line(
+                    c.x + rad * a0.cos(),
+                    c.y + rad * a0.sin(),
+                    c.x + rad * a1.cos(),
+                    c.y + rad * a1.sin(),
+                    3.0,
+                    c_gate(),
+                );
             }
             text_c("GATE", c.x, c.y, 16.0, c_gate());
         }
@@ -205,7 +268,14 @@ pub fn draw_zone(z: &Zone) {
             for k in (0..40).step_by(2) {
                 let a0 = k as f32 / 40.0 * std::f32::consts::TAU;
                 let a1 = (k + 1) as f32 / 40.0 * std::f32::consts::TAU;
-                draw_line(s.x + rad * a0.cos(), s.y + rad * a0.sin(), s.x + rad * a1.cos(), s.y + rad * a1.sin(), 2.0, col);
+                draw_line(
+                    s.x + rad * a0.cos(),
+                    s.y + rad * a0.sin(),
+                    s.x + rad * a1.cos(),
+                    s.y + rad * a1.sin(),
+                    2.0,
+                    col,
+                );
             }
         }
         Zone::Rect(r) => {
@@ -251,11 +321,19 @@ pub fn draw_chevrons(points: &[V2], col: Color, every: f64) {
         }
         while acc + seg >= next {
             let f = (next - acc) / seg;
-            let p = V2 { x: w[0].x + (w[1].x - w[0].x) * f, y: w[0].y + (w[1].y - w[0].y) * f };
+            let p = V2 {
+                x: w[0].x + (w[1].x - w[0].x) * f,
+                y: w[0].y + (w[1].y - w[0].y) * f,
+            };
             let s = w2s(p);
             let dir = vec2((w[1].x - w[0].x) as f32, -(w[1].y - w[0].y) as f32).normalize_or_zero();
             let perp = vec2(-dir.y, dir.x);
-            draw_triangle(s + dir * 7.0, s - dir * 5.0 + perp * 5.0, s - dir * 5.0 - perp * 5.0, col);
+            draw_triangle(
+                s + dir * 7.0,
+                s - dir * 5.0 + perp * 5.0,
+                s - dir * 5.0 - perp * 5.0,
+                col,
+            );
             next += every;
         }
         acc += seg;
@@ -278,7 +356,14 @@ pub fn draw_source(p: V2, sigma: f64) {
     draw_circle_lines(s.x, s.y, sigma as f32 * PX, 2.0, alpha(col, 0.5));
     for k in 0..8 {
         let a = k as f32 / 8.0 * std::f32::consts::TAU;
-        draw_line(s.x + 11.0 * a.cos(), s.y + 11.0 * a.sin(), s.x + 21.0 * a.cos(), s.y + 21.0 * a.sin(), 3.0, col);
+        draw_line(
+            s.x + 11.0 * a.cos(),
+            s.y + 11.0 * a.sin(),
+            s.x + 21.0 * a.cos(),
+            s.y + 21.0 * a.sin(),
+            3.0,
+            col,
+        );
     }
     draw_circle(s.x, s.y, 9.0, BLACK);
     draw_circle(s.x, s.y, 7.0, col);

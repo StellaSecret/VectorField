@@ -26,7 +26,10 @@ fn wins(spec: &ShapeSpec, srcs: &[Source]) -> bool {
 
 /// One source of `kind` at every legal lattice site: `(site, wins)`.
 pub fn single_map(spec: &ShapeSpec, kind: SourceKind, step: f64) -> Vec<(V2, bool)> {
-    spec.sites(step).into_iter().map(|p| (p, wins(spec, &[Source { kind, pos: p }]))).collect()
+    spec.sites(step)
+        .into_iter()
+        .map(|p| (p, wins(spec, &[Source { kind, pos: p }])))
+        .collect()
 }
 
 /// For each offered kind: `(kind, legal sites, winning sites)` with one source.
@@ -43,7 +46,9 @@ pub fn kind_stats(spec: &ShapeSpec, step: f64) -> Vec<(SourceKind, usize, usize)
 /// Fraction of all (kind, site) single placements that win.
 pub fn blind_single_fraction(spec: &ShapeSpec, step: f64) -> f64 {
     let s = kind_stats(spec, step);
-    let (n, w) = s.iter().fold((0usize, 0usize), |a, (_, n, w)| (a.0 + n, a.1 + w));
+    let (n, w) = s
+        .iter()
+        .fold((0usize, 0usize), |a, (_, n, w)| (a.0 + n, a.1 + w));
     w as f64 / n.max(1) as f64
 }
 
@@ -79,16 +84,32 @@ pub fn reader_sites(spec: &ShapeSpec, path: &Trajectory, step: f64) -> Vec<(Sour
     for p in spec.sites(step) {
         // the reader looks at the push where the probe first meets the source (the first path point within the
         // source's influence radius where the push is visible): that first kick is what the arrows show them
-        let Some(bi) = pts.iter().position(|s| s.dist(p) <= reach && spec.kinds.iter().any(|k| k.term(p, spec.k, spec.sigma).eval(*s, 0.0).len() >= READER_MIN_PUSH)) else { continue };
+        let Some(bi) = pts.iter().position(|s| {
+            s.dist(p) <= reach
+                && spec
+                    .kinds
+                    .iter()
+                    .any(|k| k.term(p, spec.k, spec.sigma).eval(*s, 0.0).len() >= READER_MIN_PUSH)
+        }) else {
+            continue;
+        };
         let s = pts[bi];
-        let h = if bi + 1 < pts.len() { pts[bi + 1] - s } else { s - pts[bi - 1] };
+        let h = if bi + 1 < pts.len() {
+            pts[bi + 1] - s
+        } else {
+            s - pts[bi - 1]
+        };
         if h.len() < 1e-9 {
             continue;
         }
         let h = h * (1.0 / h.len());
         let n = h.perp();
         let to_t = target - s;
-        let c = if to_t.len() > 1e-9 { h.perp().dot(to_t) / to_t.len() } else { 0.0 };
+        let c = if to_t.len() > 1e-9 {
+            h.perp().dot(to_t) / to_t.len()
+        } else {
+            0.0
+        };
         let side = if c.abs() < 0.15 { 0.0 } else { c.signum() };
         if side == 0.0 && stopped.is_some_and(|e| e.dist(s) > reach) {
             continue;
@@ -99,7 +120,11 @@ pub fn reader_sites(spec: &ShapeSpec, path: &Trajectory, step: f64) -> Vec<(Sour
                 continue;
             }
             let lat = u.dot(n);
-            let ok = if side != 0.0 { lat * side >= 0.5 * u.len() } else { lat.abs() >= 0.5 * u.len() };
+            let ok = if side != 0.0 {
+                lat * side >= 0.5 * u.len()
+            } else {
+                lat.abs() >= 0.5 * u.len()
+            };
             if ok {
                 out.push((k, p));
             }
@@ -111,7 +136,10 @@ pub fn reader_sites(spec: &ShapeSpec, path: &Trajectory, step: f64) -> Vec<(Sour
 /// `(reader candidates, how many win)` for a single-source level.
 pub fn reader_single(spec: &ShapeSpec, step: f64) -> (usize, usize) {
     let sites = reader_sites(spec, &baseline(spec), step);
-    let w = sites.iter().filter(|(k, p)| wins(spec, &[Source { kind: *k, pos: *p }])).count();
+    let w = sites
+        .iter()
+        .filter(|(k, p)| wins(spec, &[Source { kind: *k, pos: *p }]))
+        .count();
     (sites.len(), w)
 }
 
@@ -119,7 +147,10 @@ pub fn reader_single(spec: &ShapeSpec, step: f64) -> (usize, usize) {
 /// Every legal (kind, site) candidate on a lattice.
 fn candidates(spec: &ShapeSpec, step: f64) -> Vec<Source> {
     let sites = spec.sites(step);
-    spec.kinds.iter().flat_map(|&k| sites.iter().map(move |&p| Source { kind: k, pos: p })).collect()
+    spec.kinds
+        .iter()
+        .flat_map(|&k| sites.iter().map(move |&p| Source { kind: k, pos: p }))
+        .collect()
 }
 
 /// A pair of candidates can coexist (the sources are not too close).
@@ -148,8 +179,10 @@ pub struct PairStats {
 
 pub fn pair_stats(spec: &ShapeSpec, step: f64) -> PairStats {
     let c = candidates(spec, step);
-    let mut st = PairStats::default();
-    st.single_wins = c.iter().filter(|s| wins(spec, &[**s])).count();
+    let mut st = PairStats {
+        single_wins: c.iter().filter(|s| wins(spec, &[**s])).count(),
+        ..Default::default()
+    };
     // downstream partner sets per upstream candidate index
     let mut partners: Vec<Vec<usize>> = vec![vec![]; c.len()];
     for i in 0..c.len() {
@@ -165,7 +198,11 @@ pub fn pair_stats(spec: &ShapeSpec, step: f64) -> PairStats {
                 } else {
                     st.mixed_kind_wins += 1;
                 }
-                let (up, down) = if (c[i].pos.x, c[i].pos.y) <= (c[j].pos.x, c[j].pos.y) { (i, j) } else { (j, i) };
+                let (up, down) = if (c[i].pos.x, c[i].pos.y) <= (c[j].pos.x, c[j].pos.y) {
+                    (i, j)
+                } else {
+                    (j, i)
+                };
                 partners[up].push(down);
             }
         }
@@ -238,19 +275,33 @@ pub fn thickness_single(spec: &ShapeSpec, step: f64, max: usize) -> f64 {
     for (k, p) in win_sites.iter().step_by(stride) {
         n += 1;
         let h = step * 0.5;
-        let all = [V2 { x: h, y: 0.0 }, V2 { x: -h, y: 0.0 }, V2 { x: 0.0, y: h }, V2 { x: 0.0, y: -h }].iter().all(|d| {
+        let all = [
+            V2 { x: h, y: 0.0 },
+            V2 { x: -h, y: 0.0 },
+            V2 { x: 0.0, y: h },
+            V2 { x: 0.0, y: -h },
+        ]
+        .iter()
+        .all(|d| {
             let q = *p + *d;
             spec.site_error(q).is_some() || wins(spec, &[Source { kind: *k, pos: q }])
         });
         thick += all as usize;
     }
-    if n == 0 { 0.0 } else { thick as f64 / n as f64 }
+    if n == 0 {
+        0.0
+    } else {
+        thick as f64 / n as f64
+    }
 }
 
 // ------------------------------------------------------------------ level-level entry points
 pub fn solvable(level: &Level) -> bool {
     let spec = ShapeSpec::from_level(level);
-    if kind_stats(&spec, STEP_SINGLE).iter().any(|(_, _, w)| *w > 0) {
+    if kind_stats(&spec, STEP_SINGLE)
+        .iter()
+        .any(|(_, _, w)| *w > 0)
+    {
         return true;
     }
     spec.max_sources >= 2 && pair_stats(&spec, STEP_PAIR).wins > 0
@@ -260,15 +311,30 @@ pub fn summarize(level: &Level) -> String {
     let spec = ShapeSpec::from_level(level);
     let kinds = kind_stats(&spec, STEP_SINGLE)
         .iter()
-        .map(|(k, n, w)| format!("{} {:.1}%", k.short(), 100.0 * *w as f64 / (*n).max(1) as f64))
+        .map(|(k, n, w)| {
+            format!(
+                "{} {:.1}%",
+                k.short(),
+                100.0 * *w as f64 / (*n).max(1) as f64
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ");
     if spec.max_sources >= 2 {
         let p = pair_stats(&spec, STEP_PAIR);
-        format!("single: {kinds}; pairs {:.2}% of {} win, coupling {:.2}", 100.0 * p.wins as f64 / p.pairs.max(1) as f64, p.pairs, p.coupling)
+        format!(
+            "single: {kinds}; pairs {:.2}% of {} win, coupling {:.2}",
+            100.0 * p.wins as f64 / p.pairs.max(1) as f64,
+            p.pairs,
+            p.coupling
+        )
     } else {
         let (rn, rw) = reader_single(&spec, STEP_SINGLE);
-        format!("single: {kinds}; reader {:.0}% of {} sites", 100.0 * rw as f64 / rn.max(1) as f64, rn)
+        format!(
+            "single: {kinds}; reader {:.0}% of {} sites",
+            100.0 * rw as f64 / rn.max(1) as f64,
+            rn
+        )
     }
 }
 
@@ -280,14 +346,28 @@ pub fn report(levels: &[Level]) -> String {
         let spec = ShapeSpec::from_level(l);
         let ks = kind_stats(&spec, STEP_SINGLE);
         let (n, w) = ks.iter().fold((0, 0), |a, (_, n, w)| (a.0 + n, a.1 + w));
-        let by_kind = ks.iter().map(|(k, n, w)| format!("{} {:.1}", k.short(), 100.0 * *w as f64 / (*n).max(1) as f64)).collect::<Vec<_>>().join(", ");
+        let by_kind = ks
+            .iter()
+            .map(|(k, n, w)| {
+                format!(
+                    "{} {:.1}",
+                    k.short(),
+                    100.0 * *w as f64 / (*n).max(1) as f64
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
         let (rn, rw) = reader_single(&spec, STEP_SINGLE);
         let b = baseline(&spec);
         s.push_str(&format!(
             "| {} {} | {} | {} | {} | {:.1} | {} | {} / {:.0} | {:.2} |\n",
             l.id,
             l.title,
-            spec.kinds.iter().map(|k| k.short()).collect::<Vec<_>>().join(", "),
+            spec.kinds
+                .iter()
+                .map(|k| k.short())
+                .collect::<Vec<_>>()
+                .join(", "),
             spec.max_sources,
             l.describe(b.outcome),
             100.0 * w as f64 / n.max(1) as f64,

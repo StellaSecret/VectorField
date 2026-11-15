@@ -38,7 +38,9 @@ pub fn candidate_pool(level: &Level, zone: &Zone) -> Vec<(V2, Trajectory)> {
     let mut out = vec![];
     for p in zone.grid(11) {
         let t = level.run(f, p, 0.0);
-        let Outcome::Reached(e) = t.outcome else { continue };
+        let Outcome::Reached(e) = t.outcome else {
+            continue;
+        };
         if t.duration() < 3.0 {
             continue;
         }
@@ -53,15 +55,22 @@ pub fn candidate_pool(level: &Level, zone: &Zone) -> Vec<(V2, Trajectory)> {
 }
 
 pub fn pick_rounds(level: &Level, attempt: u64) -> Vec<Round> {
-    let Rules::Predict { zone, rounds, .. } = &level.rules else { panic!("not a Predict level") };
+    let Rules::Predict { zone, rounds, .. } = &level.rules else {
+        panic!("not a Predict level")
+    };
     let pool = candidate_pool(level, zone);
-    let mut rng = Lcg(level.seed.wrapping_mul(7919).wrapping_add(attempt * 104729 + 1));
+    let mut rng = Lcg(level
+        .seed
+        .wrapping_mul(7919)
+        .wrapping_add(attempt * 104729 + 1));
     let mut chosen: Vec<Round> = vec![];
     let mut guard = 0;
     while chosen.len() < *rounds && !pool.is_empty() && guard < 500 {
         guard += 1;
         let (p, t) = &pool[rng.below(pool.len())];
-        let Outcome::Reached(e) = t.outcome else { continue };
+        let Outcome::Reached(e) = t.outcome else {
+            continue;
+        };
         let used = |r: &Round| r.answer == e;
         // Prefer exits not used yet; accept repeats only after many failed draws.
         if chosen.iter().any(used) && guard < 200 {
@@ -70,7 +79,11 @@ pub fn pick_rounds(level: &Level, attempt: u64) -> Vec<Round> {
         if chosen.iter().any(|r| r.start.dist(*p) < 0.8) {
             continue;
         }
-        chosen.push(Round { start: *p, traj: t.clone(), answer: e });
+        chosen.push(Round {
+            start: *p,
+            traj: t.clone(),
+            answer: e,
+        });
     }
     chosen
 }
@@ -78,7 +91,15 @@ pub fn pick_rounds(level: &Level, attempt: u64) -> Vec<Round> {
 impl PredictGame {
     pub fn new(level: Level) -> Self {
         let rounds = pick_rounds(&level, 0);
-        PredictGame { level, attempt_no: 0, rounds, idx: 0, selected: None, revealed: false, results: vec![] }
+        PredictGame {
+            level,
+            attempt_no: 0,
+            rounds,
+            idx: 0,
+            selected: None,
+            revealed: false,
+            results: vec![],
+        }
     }
     pub fn reveal_mode(&self) -> Reveal {
         match &self.level.rules {
@@ -109,7 +130,10 @@ impl PredictGame {
             return None;
         }
         let chosen = self.selected?;
-        let r = RoundResult { chosen, correct: chosen == self.round().answer };
+        let r = RoundResult {
+            chosen,
+            correct: chosen == self.round().answer,
+        };
         self.results.push(r);
         self.revealed = true;
         Some(r)

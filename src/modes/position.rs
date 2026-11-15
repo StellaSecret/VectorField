@@ -28,10 +28,20 @@ impl PositionGame {
     pub fn new(level: Level) -> Self {
         let n = Self::slots_of(&level).len();
         let intensity = match &level.rules {
-            Rules::Position { intensity: Some((a, b)), .. } => (a + b) * 0.5,
+            Rules::Position {
+                intensity: Some((a, b)),
+                ..
+            } => (a + b) * 0.5,
             _ => level.field.intensity,
         };
-        PositionGame { level, placed: vec![None; n], phase: 0.0, intensity, attempts: vec![], won: false }
+        PositionGame {
+            level,
+            placed: vec![None; n],
+            phase: 0.0,
+            intensity,
+            attempts: vec![],
+            won: false,
+        }
     }
     fn slots_of(l: &Level) -> Vec<Slot> {
         match &l.rules {
@@ -85,7 +95,14 @@ impl PositionGame {
         }
         let field = self.level.field.with_intensity(self.intensity);
         let slots = self.slots();
-        let mut a = Attempt { starts: vec![], trajs: vec![], slot_ok: vec![], success: true, phase: self.phase, intensity: self.intensity };
+        let mut a = Attempt {
+            starts: vec![],
+            trajs: vec![],
+            slot_ok: vec![],
+            success: true,
+            phase: self.phase,
+            intensity: self.intensity,
+        };
         for (i, s) in slots.iter().enumerate() {
             let p = self.placed[i].unwrap();
             let t = self.level.run(&field, p, self.phase);
