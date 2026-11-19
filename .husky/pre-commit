@@ -1,0 +1,67 @@
+set +e
+
+RUST_STAGED=$(git diff --cached --name-only --diff-filter=ACMR | grep '\.rs$' || true)
+
+if [ -n "$RUST_STAGED" ]; then
+  if ! command -v rustfmt >/dev/null 2>&1; then
+    echo "rustfmt not found — Rust format check skipped"
+  else
+    FMT_FAILED=""
+    for f in $RUST_STAGED; do
+      [ -f "$f" ] || continue
+      if ! rustfmt --edition 2021 --check "$f"; then
+        FMT_FAILED="$FMT_FAILED $f"
+      fi
+    done
+    if [ -n "$FMT_FAILED" ]; then
+      echo ""
+      echo "cargo fmt: unformatted staged Rust file(s):"
+      for f in $FMT_FAILED; do
+        echo "  $f"
+      done
+      echo "Run 'cargo fmt --all' and re-stage."
+      exit 1
+    fi
+  fi
+
+  if command -v cargo >/dev/null 2>&1; then
+    echo "cargo clippy (warnings only)..."
+    cargo clippy --lib --bins --locked --quiet
+    CLIPPY_EXIT=$?
+    if [ "$CLIPPY_EXIT" -ne 0 ]; then
+      echo "cargo clippy reported problems; review before pushing"
+    fi
+  else
+    echo "cargo not found — clippy skipped"
+  fi
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+  echo "gitleaks protect --staged..."
+  gitleaks protect --staged
+  GITLEAKS_EXIT=$?
+  if [ "$GITLEAKS_EXIT" -ne 0 ]; then
+    echo "gitleaks found a secret — commit blocked"
+    exit 1
+  fi
+else
+  echo "gitleaks not installed — secret scan skipped (CI runs TruffleHog)"
+fi
+
+LARGE=$(git diff --cached --name-only --diff-filter=ACM | while IFS= read -r f; do
+  [ -f "$f" ] || continue
+  size=$(wc -c < "$f")
+  if [ "$size" -gt 512000 ]; then
+    printf '%s (%s KB)\n' "$f" "$((size / 1024))"
+  fi
+done)
+
+if [ -n "$LARGE" ]; then
+  echo ""
+  echo "Staged file(s) over 500 KB:"
+  printf '%s\n' "$LARGE"
+  echo "Generated WASM/binaries belong in CI artifacts, not git"
+  exit 1
+fi
+
+exit 0

@@ -7,12 +7,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: write
-  security-events: write
-  actions: read
-  pages: write
-  id-token: write
+permissions: {}
 
 concurrency:
   group: ci-${{ github.event_name }}-${{ github.ref }}
@@ -25,6 +20,8 @@ jobs:
   # ── SECURITY SCAN ─────────────────────────────────────
   scan-secrets:
     name: Secret Scan
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -46,6 +43,8 @@ jobs:
   # in the WASM or desktop builds.
   supply-chain:
     name: Supply Chain (cargo-deny)
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -59,6 +58,8 @@ jobs:
   # so the whole "are the mechanics really different?" suite runs here.
   rust-core:
     name: Rust Core (test + validation + WASM check)
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -90,6 +91,8 @@ jobs:
   web-build:
     name: Build WASM
     needs: [rust-core, supply-chain]
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -119,8 +122,10 @@ jobs:
   # ── DESKTOP BUILDS ────────────────────────────────────
   build-desktop:
     name: Build ${{ matrix.name }}
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [scan-secrets, rust-core, supply-chain]
+    permissions:
+      contents: read
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -174,8 +179,11 @@ jobs:
   # ── DEPLOY WEB TO GITHUB PAGES ────────────────────────
   deploy-web:
     name: Deploy to GitHub Pages
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [web-build]
+    permissions:
+      pages: write
+      id-token: write
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -199,8 +207,10 @@ jobs:
   # ── RELEASE (Desktop + Web bundle) ────────────────────
   release:
     name: Create Release
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [web-build, build-desktop]
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     environment: release
     steps:

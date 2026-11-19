@@ -1,0 +1,27 @@
+commit_msg=$(cat "$1")
+subject=$(printf '%s\n' "$commit_msg" | head -n 1)
+
+case "$subject" in
+  Merge*|Revert*) exit 0 ;;
+esac
+
+pattern='^(feat|fix|docs|style|refactor|test|chore|ci|perf|build)(\(.+\))?: .{1,100}$'
+
+if ! printf '%s\n' "$subject" | grep -qE "$pattern"; then
+  echo ""
+  echo "Invalid commit message: $subject"
+  echo ""
+  echo "Expected: <type>(<scope>): <description>"
+  echo ""
+  echo "Valid types:"
+  echo "  feat, fix, docs, style, refactor, test, chore, ci, perf, build"
+  echo ""
+  echo "Examples:"
+  echo "  feat(level): add Synchronize level"
+  echo "  fix(ui): keep progress after a failed save"
+  echo "  ci: harden workflow token permissions"
+  echo ""
+  exit 1
+fi
+
+exit 0
