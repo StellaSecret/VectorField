@@ -521,9 +521,21 @@ impl App {
             // Combinations: 18 levels grouped under family headings in two columns (the first two families on the
             // left, the others on the right), so every row stays readable and the Back button fits.
             let (mut ycol, mut last) = ([160.0f32; 2], [usize::MAX; 2]);
+            // each column's rows shrink to fit above the Back button (at most 44 px, at least 36 px; the objective line
+            // is dropped below 40 px)
+            let fam_of = |i: &usize| levels::combo_family(self.levels[*i].id);
+            let col_of = |fam: usize| if fam < 2 { 0 } else { 1 };
+            let mut pitch = [44.0f32; 2];
+            for (col, p) in pitch.iter_mut().enumerate() {
+                let rows = ids.iter().filter(|i| col_of(fam_of(i)) == col).count() as f32;
+                let heads = (0..levels::COMBO_FAMILIES.len())
+                    .filter(|&f| col_of(f) == col && ids.iter().any(|i| fam_of(i) == f))
+                    .count() as f32;
+                *p = ((575.0 - 26.0 * heads) / rows.max(1.0)).clamp(36.0, 44.0);
+            }
             for (k, i) in ids.iter().enumerate() {
                 let fam = levels::combo_family(self.levels[*i].id);
-                let col = fam / 2;
+                let col = col_of(fam);
                 let x = 60.0 + col as f32 * 470.0;
                 if last[col] != fam {
                     text(
@@ -536,8 +548,8 @@ impl App {
                     ycol[col] += 26.0;
                     last[col] = fam;
                 }
-                let r = Rect::new(x, ycol[col], 440.0, 44.0);
-                ycol[col] += 48.0;
+                let r = Rect::new(x, ycol[col], 440.0, pitch[col] - 4.0);
+                ycol[col] += pitch[col];
                 let open = self.level_unlocked(c, k);
                 let hot = open && r.contains(inp.mouse);
                 draw_rectangle(
@@ -566,24 +578,31 @@ impl App {
                 text(
                     &format!("{}", k + 1),
                     r.x + 12.0,
-                    r.y + 30.0,
+                    r.y + r.h / 2.0 + 9.0,
                     26.0,
                     if open { WHITE } else { gray() },
                 );
+                let two_lines = r.h >= 36.0;
                 text(
                     &ui::fit_text(self.levels[*i].title, 20.0, r.w - 110.0),
                     r.x + 54.0,
-                    r.y + 20.0,
+                    if two_lines {
+                        r.y + 18.0
+                    } else {
+                        r.y + r.h / 2.0 + 7.0
+                    },
                     20.0,
                     if open { WHITE } else { gray() },
                 );
-                text(
-                    &ui::fit_text(self.levels[*i].objective, 13.0, r.w - 110.0),
-                    r.x + 54.0,
-                    r.y + 37.0,
-                    13.0,
-                    gray(),
-                );
+                if two_lines {
+                    text(
+                        &ui::fit_text(self.levels[*i].objective, 13.0, r.w - 110.0),
+                        r.x + 54.0,
+                        r.y + 34.0,
+                        13.0,
+                        gray(),
+                    );
+                }
                 let (cx, cy) = (r.x + r.w - 26.0, r.y + r.h / 2.0);
                 if self.done(*i) {
                     draw_circle_lines(cx, cy, 11.0, 2.5, good_c());

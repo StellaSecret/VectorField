@@ -617,3 +617,128 @@ fn cmb_19_default_phase_wins_for_no_hidden_source_and_the_launch_phase_is_flown(
     let b = spec.try_option(&f, 3).1;
     assert!(a.last().unwrap().dist(*b.last().unwrap()) > 0.5 || a.len() != b.len());
 }
+
+// ---------------------------------------------------------------- three decisions in one level (cmb-20)
+#[test]
+fn cmb_20_needs_scouting_the_cancel_and_the_slot_and_holds_with_the_target_moved() {
+    for (id, req) in [
+        ("cmb-20", ["pos-1", "shp-1", "sur-1"]),
+        ("cmb-21", ["shp-1", "ste-1", "sur-1"]),
+    ] {
+        three_decisions_hold(id, req);
+    }
+}
+
+fn three_decisions_hold(id: &str, req: [&str; 3]) {
+    let l = lv_id(id);
+    assert_eq!(
+        levels::combo_requires(id),
+        req,
+        "{id} needs three mechanics"
+    );
+    let r = report(&l);
+    assert!(r.distinct && r.best_fixed < r.streak && r.visible_right < r.streak);
+    assert_eq!((r.reader_right, r.seen), (r.entries, r.entries));
+    assert!(
+        r.tolerance >= TOLERANCE_MIN,
+        "tolerance {:.0}%",
+        100.0 * r.tolerance
+    );
+    assert_eq!(
+        r.neutral_wins,
+        vec![Some(0), Some(0)],
+        "no cancel and the default slot must each win for no hidden source"
+    );
+    assert!(r.controls_needed());
+    for ((dx, dy), ok) in robustness(&l) {
+        assert!(
+            ok,
+            "the ablation fails with the target moved by ({dx:+.1}, {dy:+.1})"
+        );
+    }
+}
+
+#[test]
+fn a_sequence_of_choices_is_one_option_and_is_judged_by_one_flight() {
+    let l = lv_id("cmb-20");
+    let spec = ScoutSpec::from_level(&l);
+    let comps = spec.components();
+    assert_eq!(comps.len(), 2);
+    assert_eq!(
+        (comps[0].1, comps[1].1),
+        (9, 8),
+        "eight sources and none; eight slots"
+    );
+    assert_eq!(spec.options(), 72);
+    for o in 0..spec.options() {
+        assert_eq!(spec.encode(&spec.decode(o)), o);
+    }
+    assert_eq!(
+        spec.neutral(0),
+        Some(8),
+        "the cancel's neutral choice is none (last)"
+    );
+    assert_eq!(
+        spec.neutral(1),
+        Some(0),
+        "the release's neutral choice is the default slot"
+    );
+    // the game: nothing commits until every group has a choice, then one flight judges them together
+    let mut g = ScoutGame::with_seed(l.clone(), 3);
+    assert!(!g.ready());
+    assert_eq!(
+        g.commit(),
+        Err(ScoutError::BadExit),
+        "a half-made choice cannot be committed"
+    );
+    let w = g.spec.winners(g.entry());
+    let parts = g.spec.decode(w[0]);
+    assert!(g.select(0, parts[0]) && !g.ready());
+    assert!(!g.select(0, 9) && !g.select(2, 0), "no such choice");
+    assert!(g.select(1, parts[1]) && g.ready());
+    assert_eq!(g.commit(), Ok(true));
+    assert_eq!(g.streak, 1);
+    assert!(g.next_attempt());
+    assert!(!g.ready(), "a new attempt starts with nothing chosen");
+    // the right source alone (default slot) and the right slot alone (no source) both fail
+    let w = g.spec.winners(g.entry());
+    let parts = g.spec.decode(w[0]);
+    assert!(g.select(0, parts[0]) && g.select(1, 0));
+    assert_eq!(g.commit(), Ok(false));
+}
+
+#[test]
+fn the_careful_reader_is_used_only_for_sequences() {
+    // pick_robust never picks an option that fails under the estimate itself
+    let l = lv_id("cmb-20");
+    let spec = ScoutSpec::from_level(&l);
+    let (kind, pos) = spec.rules.pool[1];
+    let o = spec
+        .pick_robust(kind, pos, 0.3)
+        .expect("the exact source has a safe option");
+    assert!(spec.try_option(&spec.field_with(kind, pos), o).0);
+    let _ = (levels::combo_levels()
+        .iter()
+        .filter(|l| matches!(&l.rules, Rules::Scout(r) if matches!(r.act, ScoutAct::Seq(_))))
+        .count()
+        >= 1);
+}
+
+#[test]
+fn cmb_21_has_a_source_group_and_a_gust_plan_group_each_with_a_none() {
+    let spec = ScoutSpec::from_level(&lv_id("cmb-21"));
+    let comps = spec.components();
+    assert_eq!(
+        (comps[0].1, comps[1].1),
+        (9, 5),
+        "eight sources and none; four plans and none"
+    );
+    assert_eq!((spec.neutral(0), spec.neutral(1)), (Some(8), Some(4)));
+    // each winning option adds a source and gusts: neither none wins for any hidden source
+    for a in 0..spec.rules.pool.len() {
+        for o in spec.winners(a) {
+            let d = spec.decode(o);
+            assert!(d[0] != 8 && d[1] != 4, "entry {a}: option {o} uses a none");
+        }
+    }
+}

@@ -101,9 +101,9 @@ The hidden source is drawn at random from a pool of three each attempt (never th
 
 **Limits.** `cmb-17` is a choice of prepared plans, not closed-loop steering: a live steer would show the probe's own flight and make the scouting unnecessary, so the Steer decision here is only which gust plan suits the source. A plan that ends before the target is reached fails, and the probe gets six beats. The reader model triangulates exactly and picks the first working option; nobody has played these levels, and the game screens for the new acts have been compiled but not run by a person.
 
-## The front page with 18 combination levels
+## The front page with 21 combination levels
 
-One progress pip per level stops fitting a card above 8 levels, so the Combinations card on the menu shows a bar with one tick per level and the count (the other cards keep their pips). The select screen lists the combination levels under four headings, in two columns so that every row stays readable: *First combinations* (`cmb-1` to `cmb-6`) and *Two controls before the run* (`cmb-7` to `cmb-10`) on the left, *Set up, then steer* (`cmb-11` to `cmb-13`) and *Learn, then act* (`cmb-14` to `cmb-19`) on the right (`levels::combo_family`). Titles and objectives are cut to the row with "..." when they are too long, so the full objective is shown once the level opens. A test checks that the families are contiguous and that both columns end above the Back button. The layout has been compiled but not looked at on a real screen.
+One progress pip per level stops fitting a card above 8 levels, so the Combinations card on the menu shows a bar with one tick per level and the count (the other cards keep their pips). The select screen lists the combination levels under five headings, in two columns so that every row stays readable: *First combinations* (`cmb-1` to `cmb-6`) and *Two controls before the run* (`cmb-7` to `cmb-10`) on the left, *Set up, then steer* (`cmb-11` to `cmb-13`), *Learn, then act* (`cmb-14` to `cmb-19`) and *Three decisions* (`cmb-20`) on the right (`levels::combo_family`). Titles and objectives are cut to the row with "..." when they are too long, so the full objective is shown once the level opens. Each column's rows shrink to fit above the Back button (44 px at most, 36 px at least, headings 26 px; below 40 px the objective line is dropped), so the right column holds up to 13 rows: it has 11 now, so two more levels fit, and a fourteenth would need a third column or scrolling. A test checks that the families are contiguous and that both columns fit at 36 px. The layout has been compiled but not looked at on a real screen.
 
 ## Survey + Tempo: choose the launch phase (`cmb-19`)
 
@@ -121,14 +121,25 @@ Found by `examples/search_act2.rs phase`: 1 design in 40,000 passed everything w
 
 **The dial act is not used.** Survey + Experiment (choose a dial setting) found 2 designs with disjoint winners in 40,000 and none that passed. The dial only scales the tunable background, so it cannot bend a probe either way to compensate sources on opposite sides, and the best dial is nearly the same for every source. The act exists in the engine (`ScoutAct::Dial`) but no level ships with it.
 
-## Choices in sequence (engine only so far)
+## Three decisions: `cmb-20` Cancel and Launch (Survey + Shape + Position)
 
-`ScoutAct::Seq` makes one flight judge several choices together (for example a release slot and a launch phase, or a source to add and a gust plan); the options are every combination, and a `Cancel` or `Plan` in a sequence gains a last option "none". The screen shows one group of buttons per choice and a "Commit all" button. No level uses it yet, because no design met the bar:
+`ScoutAct::Seq` makes one flight judge several choices together; the options are every combination (the first choice is the most significant), and a `Cancel` or `Plan` inside a sequence gains a last option "none". The screen shows one group of buttons per choice and a "Commit all" button (Enter). `cmb-20` is the first level with three mechanics: Survey (scout the hidden source), Shape (add a cancelling source, or none) and Position (one of eight release slots, slot 1 being the default far off the lane). Its prerequisites are `pos-1`, `shp-1` and `sur-1`.
 
+The bar is the scout bar plus one more measure, `ScoutReport::neutral_wins`: for each choice that has a neutral option (no source; the default slot, phase or dial), the number of hidden sources that some winning option beats with that choice left neutral. Every entry is 0 for `cmb-20`, so each control is needed: no cancel never wins, the default slot never wins, and the visible arrows alone suggest a choice that is right for 1 of 3 hidden sources at best. The scouting is needed because no fixed combination wins for more than 1 of 3 (best fixed 1/3), and the reader finds all three (3/3), with tolerance 92% and 4/4 robustness to the target moved by 0.3.
+
+**How it is built, and what that costs.** Random search over joint choices failed (see below), so `cmb-20` was constructed so that the choices do not fight over one narrow window: the hidden source is always on one of four places and the opposite kind at the same place cancels it exactly (the tolerant `cmb-15` structure), after which the flight is the visible one, and the release slot is chosen among slots that reach the target through the visible swirl. The right slot is therefore the same for every hidden source; only the cancel depends on the scouting. The three decisions are all necessary and none substitutes for another, but the slot is not something the scouts tell you: it is a property of the visible field that is learned once. A level where the hidden source also moves the right slot (a true interaction) would be harder to make tolerant, and none was found.
+
+Found by `examples/search_act2.rs shape_pos`: 2 designs in 2,000 samples passed everything (the shipped one has the wider window of three slots; the other had tolerance 96% and two slots). That is a much higher rate than random search over joint windows.
+
+**What did not work.** Random search over two stages whose winning windows interact found no design:
 - Survey → Position → Tempo (8 slots × 6 phases, default slot far off the lane): 0 in about 120,000 samples; 153 to 162 per 40,000 had disjoint winners and 11 to 13 needed all three controls and were read correctly.
-- Survey → Shape → Steer (all 48 single-gust plans enumerated, four plans chosen for exclusive winners): 0 in 40,000; 41 had disjoint winners and 32 passed the controls and reader checks.
+- Survey → Shape → Steer (all 48 single-gust plans enumerated, four plans chosen for exclusive winners): 0 in 40,000.
 
-The candidates fail on *tolerance*, not on the moved target: with the reader's estimate of the source off by 0.3, the winning (slot, phase) pair changes, because the winning combinations are narrow in the two-dimensional grid of options (tolerances 0.46 to 0.67 where 0.8 is required). A careful reader (`ScoutSpec::pick_robust`: the option that wins under the most estimates within 0.3 of its own) was added for sequences, and did not change the outcome.
+Those candidates fail on tolerance, not on the moved target: with the reader's estimate of the source off by 0.3, the winning (slot, phase) pair changes, because the winning combinations are narrow in the two-dimensional grid of options (tolerances 0.46 to 0.67 where 0.8 is required). A careful reader (`ScoutSpec::pick_robust`: the option that wins under the most estimates within 0.3 of its own) is used for sequences and did not rescue them. It is a different reader model from the one used for single choices, which pick the first option that works for the estimate.
+
+## Three decisions again: `cmb-21` Cancel and Steer (Survey + Shape + Steer)
+
+`cmb-21` is built the same way as `cmb-20`, with a gust plan where `cmb-20` has a release slot. The hidden source is on one of four places (a repeller or an attractor); the opposite kind there cancels it exactly, after which the probe flies the visible field (a stream plus a swirl), which leaves it off the target; one of four fixed single-gust plans (or none) then brings it onto the target. Requires `shp-1`, `ste-1` and `sur-1`. Bar: reader 3/3, tolerance 96%, best fixed 1/3, visible-only 1/3, robust 4/4, and `neutral_wins` is 0 for both choices (no source added and no gust each win for no hidden source). Found by `examples/search_act2.rs shape_steer2`: the plans are chosen from the single-gust plans that fix the visible-only flight (two that do, two that do not), and 1 design in 11,600 samples passed everything (3,000 samples found none at 0.3, so the rate is low even by construction). The same limit as `cmb-20` applies: the right gust plan is the same for every hidden source, because after an exact cancel the flight is the visible one.
 
 ## Why `cmb-8` is built the way it is
 
@@ -180,6 +191,15 @@ The bar (`validate_combo::sync_report`, all from the real simulation, delays on 
 **How it was found** (`examples/search_sync.rs`): a stream plus two pulsing Gauss sources (`cmb-9`'s recipe) at random places and phases, probe A's start height, five random slots for probe B, and the target height, all at two decimals. The bar above (the base ablation, one to three winning slots, at least 15 winning delay pairs, and the four moved-target checks) was passed by 6 of 300 samples, and the one shipped has the fewest winning slots (2 of 5).
 
 **Limits.** The informed-versus-blind comparison is not measured for Synchronize levels (as for `cmb-9`). The search found this kind of level easily (6 of 300 samples), so it is worth playing: the bar establishes that both decisions are necessary, not that the level is enjoyable, and nobody has played it. The hint says that two of the five slots work, which is true of this design.
+
+## Survey + Synchronize: tried, not built
+
+A scout-then-act level with an act that chooses the release delays of two probes was prototyped (probes A and B started at different heights, eight numbered delay pairs: no delay, and B later or A later by 1 to 4 steps of 1.0 or 1.5 s, meeting band 0.6 s, judged by `SyncSpec::fly`) and searched with the scout bar. It was removed again, because no design came close:
+
+- Version 1 (a stream and a swirl, three hidden sources anywhere, strength 2.01 or 3.0): 40,000 samples; in 3,000 of them only 24 had a winning option for all three hidden sources, and 3 in 40,000 had winners that were disjoint. None passed the control and reader checks.
+- Version 2 (hidden sources placed near one probe's lane, strength 3.0 or 5.0, option spacing 1.0 or 1.5 s): 1 in 40,000 had disjoint winners, none passed.
+
+The reason seems to be scale: a hidden source changes a probe's travel time by less than the width of a winning delay window (the band is 1.2 s wide), so one option wins for several hidden sources, and where the effect is larger a probe often misses the target altogether. A different shape of act (for example choosing among few widely spaced delay differences with a wider band) might work but was not tried. Survey + Experiment (choose the dial) was also tried and found nothing, because the dial only scales the background (see the `cmb-19` section).
 
 ## Attempts that failed first (kept as a record)
 

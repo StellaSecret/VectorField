@@ -59,7 +59,7 @@ fn the_new_levels_are_in_the_combination_chapter_after_the_old_six() {
         [
             "cmb-1", "cmb-2", "cmb-3", "cmb-4", "cmb-5", "cmb-6", "cmb-7", "cmb-8", "cmb-9",
             "cmb-10", "cmb-11", "cmb-12", "cmb-13", "cmb-14", "cmb-15", "cmb-16", "cmb-17",
-            "cmb-18", "cmb-19"
+            "cmb-18", "cmb-19", "cmb-20", "cmb-21"
         ]
     );
     for id in TWO {
@@ -994,14 +994,21 @@ fn combination_levels_are_grouped_in_contiguous_families_that_fit_the_select_scr
     assert_eq!(levels::combo_family("cmb-10"), 1, "the two-control levels");
     assert_eq!(levels::combo_family("cmb-13"), 2, "set up, then steer");
     assert_eq!(levels::combo_family("cmb-17"), 3, "learn, then act");
-    // the select screen puts families 0 and 1 in the left column and 2 and 3 in the right one: rows of 48 px and
-    // headings of 26 px, from y = 160, must end above the Back button at y = 740
+    assert_eq!(levels::combo_family("cmb-20"), 4, "three decisions");
+    // the select screen puts families 0 and 1 in the left column and the others in the right one. Each column's
+    // rows shrink to fit (44 px at most, 36 px at least; headings 26 px, from y = 160, ending above the Back button
+    // at y = 740), so what must hold is that the columns fit with the smallest rows.
     for col in 0..2 {
-        let rows = fams.iter().filter(|&&f| f / 2 == col).count();
-        let heads = (0..4).filter(|f| f / 2 == col).count();
+        let in_col = |f: usize| (if f < 2 { 0 } else { 1 }) == col;
+        let rows = fams.iter().filter(|&&f| in_col(f)).count();
+        let heads = (0..levels::COMBO_FAMILIES.len())
+            .filter(|&f| in_col(f))
+            .count();
         assert!(
-            160 + rows * 48 + heads * 26 <= 735,
-            "column {col} has {rows} rows"
+            160 + rows * 36 + heads * 26 <= 735,
+            "column {col} has {rows} rows: too many even at 36 px"
         );
+        let pitch = ((575.0 - 26.0 * heads as f32) / rows as f32).clamp(36.0, 44.0);
+        assert!(pitch >= 36.0);
     }
 }

@@ -1225,3 +1225,47 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - then choose the launch phase of the main probe from 6 numbered options (0, 2, 4, 6, 8, 10 s; the first is the default), which must reach the target at (4.5, -0.29); the choice is committed before the probe flies
   - 3 correct choices in a row complete the level; a wrong one resets the streak
   - run time limit: 20 s
+
+## cmb-20 - Cancel and Launch (Combinations)
+
+- objective: Survey + Shape + Position: scout the hidden source, add a source to cancel it, and choose where to release the probe.
+- hint 1: Two groups of choices: a source to add (orange plus: a repeller, blue minus: an attractor, or none) and a release slot (numbered diamonds). Commit them together. The first source and the first slot are the defaults and are never enough.
+- hint 2: Scout the hidden source and read its kind from the yellow arrows, then add the opposite kind in the same place so that the two push cancel. That alone does not get the probe to the target.
+- hint 3: With the hidden push gone, the swirl and the stream still decide where the probe ends up. Release it from a slot that lets them carry it onto the target; fly a scout from a slot to see. Three right commits in a row.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439866
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.2, 0.21)
+  2. fixed - vortex about (0.94, -1.43): v = k perp(d) / (|d|^2 + soft^2), k = 0.46, soft = 0.8 (counter-clockwise)
+- regions:
+  0. target 'T' centre (4.5, 1.63) radius 0.9
+- rules:
+  - mechanic: **Scout, then act in several steps (Survey plus more than one other mechanic)**
+  - the main probe starts at (-5, 0) unless a choice moves it
+  - the field layers above are the visible background; a hidden source is added to it in every flight
+  - hidden sources (one is drawn at random each attempt, never the one just used; strength 3, width 0.8): attractor at (-2.29, 1.2), repeller at (-0.88, 0.28), attractor at (1.96, 1.4)
+  - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
+  - then, one after another: (1) choose one source to add from 9 numbered options, the last being none (1 repeller at (-2.29, 1.2), 2 repeller at (-0.88, 0.28), 3 repeller at (0.61, -1.56), 4 repeller at (1.96, 1.4), 5 attractor at (-2.29, 1.2), 6 attractor at (-0.88, 0.28), 7 attractor at (0.61, -1.56), 8 attractor at (1.96, 1.4)), same strength and width as the hidden ones; the probe from (-5, 0) must reach the target at (4.5, 1.63); (2) choose the release slot of the main probe from 8 numbered slots (1 at (-5, -3.3), 2 at (-5, -2.47), 3 at (-5, -1.65), 4 at (-5, -0.71), 5 at (-5, 0.07), 6 at (-5, 0.77), 7 at (-5, 1.59), 8 at (-5, 2.36)), which must reach the target at (4.5, 1.63); all the choices are committed together and one flight judges them
+  - 3 correct choices in a row complete the level; a wrong one resets the streak
+  - run time limit: 20 s
+
+## cmb-21 - Cancel and Steer (Combinations)
+
+- objective: Survey + Shape + Steer: scout the hidden source, add a source to cancel it, and choose the gust plan that finishes the job.
+- hint 1: Two groups of choices: a source to add (orange plus: a repeller, blue minus: an attractor, or none) and a gust plan (or none). Commit them together. Neither none is ever enough.
+- hint 2: Scout the hidden source, read its kind from the yellow arrows, and add the opposite kind in the same place to cancel it. That alone leaves the probe off the target.
+- hint 3: With the hidden push gone, the swirl and the stream still carry the probe past the target. Of the four gust plans, some finish the job. Fly a scout to see where the visible field takes a probe, then pick the plan that corrects it. Three right commits in a row.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439867
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1, 0.23)
+  2. fixed - vortex about (-0.35, 1.03): v = k perp(d) / (|d|^2 + soft^2), k = 2.86, soft = 0.8 (counter-clockwise)
+- regions:
+  0. target 'T' centre (4.5, 0.27) radius 0.8
+- rules:
+  - mechanic: **Scout, then act in several steps (Survey plus more than one other mechanic)**
+  - the main probe starts at (-5, 0) unless a choice moves it
+  - the field layers above are the visible background; a hidden source is added to it in every flight
+  - hidden sources (one is drawn at random each attempt, never the one just used; strength 3, width 0.8): repeller at (-2.13, -1.45), repeller at (0.48, -1.51), attractor at (2.33, 0)
+  - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
+  - then, one after another: (1) choose one source to add from 9 numbered options, the last being none (1 repeller at (-2.13, -1.45), 2 repeller at (-1, -1.34), 3 repeller at (0.48, -1.51), 4 repeller at (2.33, 0), 5 attractor at (-2.13, -1.45), 6 attractor at (-1, -1.34), 7 attractor at (0.48, -1.51), 8 attractor at (2.33, 0)), same strength and width as the hidden ones; the probe from (-5, 0) must reach the target at (4.5, 0.27); (2) choose one of 5 fixed gust plans, the last being no gust (strength 1, 1 s per beat; 1: N at beat 3; 2: E at beat 1; 3: SE at beat 4; 4: S at beat 1) so that the probe from (-5, 0) reaches the target at (4.5, 0.27); all the choices are committed together and one flight judges them
+  - 3 correct choices in a row complete the level; a wrong one resets the streak
+  - run time limit: 20 s

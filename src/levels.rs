@@ -803,6 +803,74 @@ pub fn combo_levels() -> Vec<Level> {
                 "Scouts fly from phase 0 and show you the hidden source (yellow arrows point toward an attractor). Work out which way it will pull the probe, then think about which part of the pulse leaves the probe where the source's pull can finish the job.",
                 "The hidden source changes every attempt, and each one has its own right phase. Three right choices in a row.",
             ]),
+        // cmb-20 Survey + Shape + Position, the first level with three decisions: scout, then add a source and
+        // choose a release slot, judged together by one flight. The hidden source sits on one of four places; the
+        // opposite kind there cancels it (as in cmb-15), after which the probe still has to be released from one of the
+        // slots that reach the target through the visible swirl (the default slot, far off the lane, never does).
+        // Each control is needed: no cancel (none) and the default slot win for no hidden source, and no hidden
+        // source shares a winning cancel with another. Found by examples/search_act2.rs (shape_pos).
+        hints(combo_scout("cmb-20", "Cancel and Launch", "Survey + Shape + Position: scout the hidden source, add a source to cancel it, and choose where to release the probe.",
+            Field::new().fixed(uni(1.2, 0.21)).fixed(vortex(0.94, -1.43, 0.46, 0.8)),
+            vec![Region::target(4.5, 1.63, 0.9)],
+            Rules::Scout(ScoutRules {
+                act: ScoutAct::Seq(vec![
+                    ScoutAct::Cancel { sites: vec![(SourceKind::Repeller, v2(-2.29, 1.2)), (SourceKind::Repeller, v2(-0.88, 0.28)), (SourceKind::Repeller, v2(0.61, -1.56)), (SourceKind::Repeller, v2(1.96, 1.4)), (SourceKind::Attractor, v2(-2.29, 1.2)), (SourceKind::Attractor, v2(-0.88, 0.28)), (SourceKind::Attractor, v2(0.61, -1.56)), (SourceKind::Attractor, v2(1.96, 1.4))], goal: 0 },
+                    ScoutAct::Release { starts: [-3.3, -2.47, -1.65, -0.71, 0.07, 0.77, 1.59, 2.36].iter().map(|&y| v2(-5.0, y)).collect(), goal: 0 },
+                ]),
+                start: v2(-5.0, 0.0),
+                exits: vec![],
+                scouts: 3,
+                zone: Rect::new(-5.6, -3.0, -4.4, 3.0),
+                scout_time: 6.0,
+                pool: vec![(SourceKind::Attractor, v2(-2.29, 1.2)), (SourceKind::Repeller, v2(-0.88, 0.28)), (SourceKind::Attractor, v2(1.96, 1.4))],
+                k: 3.0,
+                sigma: 0.8,
+                streak: 3,
+            })),
+            &[
+                "Two groups of choices: a source to add (orange plus: a repeller, blue minus: an attractor, or none) and a release slot (numbered diamonds). Commit them together. The first source and the first slot are the defaults and are never enough.",
+                "Scout the hidden source and read its kind from the yellow arrows, then add the opposite kind in the same place so that the two push cancel. That alone does not get the probe to the target.",
+                "With the hidden push gone, the swirl and the stream still decide where the probe ends up. Release it from a slot that lets them carry it onto the target; fly a scout from a slot to see. Three right commits in a row.",
+            ]),
+        // cmb-21 Survey + Shape + Steer, built like cmb-20: scout, then add a source (or none) and choose a gust
+        // plan (or none), judged together by one flight. The opposite kind at the hidden source's place cancels it
+        // exactly (as in cmb-15); the visible swirl then still leaves the probe off the target, and a gust fixes
+        // that. No cancel (none) and no gust (none) each win for no hidden source. Found by
+        // examples/search_act2.rs (shape_steer2): 1 design in 11,600 samples passed everything.
+        hints(combo_scout("cmb-21", "Cancel and Steer", "Survey + Shape + Steer: scout the hidden source, add a source to cancel it, and choose the gust plan that finishes the job.",
+            Field::new().fixed(uni(1.0, 0.23)).fixed(vortex(-0.35, 1.03, 2.86, 0.8)),
+            vec![Region::target(4.5, 0.27, 0.8)],
+            Rules::Scout(ScoutRules {
+                act: ScoutAct::Seq(vec![
+                    ScoutAct::Cancel { sites: vec![(SourceKind::Repeller, v2(-2.13, -1.45)), (SourceKind::Repeller, v2(-1.0, -1.34)), (SourceKind::Repeller, v2(0.48, -1.51)), (SourceKind::Repeller, v2(2.33, 0.0)), (SourceKind::Attractor, v2(-2.13, -1.45)), (SourceKind::Attractor, v2(-1.0, -1.34)), (SourceKind::Attractor, v2(0.48, -1.51)), (SourceKind::Attractor, v2(2.33, 0.0))], goal: 0 },
+                    ScoutAct::Plan {
+                        plans: vec![
+                            vec![None, None, Some(2), None, None, None],
+                            vec![Some(0), None, None, None, None, None],
+                            vec![None, None, None, Some(7), None, None],
+                            vec![Some(6), None, None, None, None, None],
+                        ],
+                        goal: 0,
+                        dirs: GustDirs::Eight,
+                        strength: 1.0,
+                        beat_time: 1.0,
+                    },
+                ]),
+                start: v2(-5.0, 0.0),
+                exits: vec![],
+                scouts: 3,
+                zone: Rect::new(-5.6, -3.0, -4.4, 3.0),
+                scout_time: 6.0,
+                pool: vec![(SourceKind::Repeller, v2(-2.13, -1.45)), (SourceKind::Repeller, v2(0.48, -1.51)), (SourceKind::Attractor, v2(2.33, 0.0))],
+                k: 3.0,
+                sigma: 0.8,
+                streak: 3,
+            })),
+            &[
+                "Two groups of choices: a source to add (orange plus: a repeller, blue minus: an attractor, or none) and a gust plan (or none). Commit them together. Neither none is ever enough.",
+                "Scout the hidden source, read its kind from the yellow arrows, and add the opposite kind in the same place to cancel it. That alone leaves the probe off the target.",
+                "With the hidden push gone, the swirl and the stream still carry the probe past the target. Of the four gust plans, some finish the job. Fly a scout to see where the visible field takes a probe, then pick the plan that corrects it. Three right commits in a row.",
+            ]),
     ]
 }
 
@@ -863,11 +931,12 @@ fn combo_shape(
 }
 /// Levels that must be finished before a combination level is offered, besides the one before it in the chapter.
 /// The headings the combination levels are grouped under on the select screen, in order.
-pub const COMBO_FAMILIES: [&str; 4] = [
+pub const COMBO_FAMILIES: [&str; 5] = [
     "First combinations",
     "Two controls before the run",
     "Set up, then steer",
     "Learn, then act",
+    "Three decisions",
 ];
 /// Which of `COMBO_FAMILIES` a combination level belongs to (an unknown id goes with the first).
 pub fn combo_family(id: &str) -> usize {
@@ -875,6 +944,7 @@ pub fn combo_family(id: &str) -> usize {
         "cmb-7" | "cmb-8" | "cmb-9" | "cmb-10" => 1,
         "cmb-11" | "cmb-12" | "cmb-13" => 2,
         "cmb-14" | "cmb-15" | "cmb-16" | "cmb-17" | "cmb-18" | "cmb-19" => 3,
+        "cmb-20" | "cmb-21" => 4,
         _ => 0,
     }
 }
@@ -889,6 +959,8 @@ pub fn combo_requires(id: &str) -> &'static [&'static str] {
         "cmb-14" => &["pos-1", "sur-1"],
         "cmb-17" => &["ste-1", "sur-1"],
         "cmb-19" => &["tem-1", "sur-1"],
+        "cmb-20" => &["pos-1", "shp-1", "sur-1"],
+        "cmb-21" => &["shp-1", "ste-1", "sur-1"],
         "cmb-15" => &["shp-1", "sur-1"],
         _ => &[],
     }

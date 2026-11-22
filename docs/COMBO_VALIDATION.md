@@ -26,3 +26,5 @@ A hidden source from a pool (drawn at random each attempt, never the one just us
 | cmb-17 Scout, Then Steer | 3 | 1, 2, 4 | 1/3 | 1/3 | 3/3 | 3/3 | 100% | 3 | 4/4 |
 | cmb-18 Scout Through the Swirl | 3 | D, C, B | 1/3 | 1/3 | 3/3 | 3/3 | 100% | 3 | 4/4 |
 | cmb-19 Scout, Then Time It | 3 | 4, 2, 3 | 1/3 | 1/3 | 3/3 | 3/3 | 100% | 3 | 4/4 |
+| cmb-20 Cancel and Launch | 3 | 1-4, 6-4, 4-4 | 1/3 | 1/3 | 3/3 | 3/3 | 92% | 3 | 4/4 |
+| cmb-21 Cancel and Steer | 3 | 5-3, 7-3, 4-3 | 1/3 | 1/3 | 3/3 | 3/3 | 96% | 3 | 4/4 |
