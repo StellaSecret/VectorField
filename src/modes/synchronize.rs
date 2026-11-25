@@ -83,6 +83,9 @@ pub struct SyncSpec {
     pub slots: Option<(usize, Vec<V2>)>,
     /// The slot chosen now (`starts[probe]` is always that slot's place).
     pub slot: usize,
+    /// Combination levels: the dial settings the player may choose from (the first is the default) and the one chosen.
+    pub dial_levels: Option<Vec<f64>>,
+    pub dial: usize,
 }
 
 impl SyncSpec {
@@ -95,6 +98,7 @@ impl SyncSpec {
             conds,
             sources,
             start_slots,
+            dial,
         } = &l.rules
         else {
             panic!("not a Synchronize level")
@@ -112,7 +116,26 @@ impl SyncSpec {
             field: l.field.clone(),
             slots: start_slots.clone(),
             slot: 0,
+            dial_levels: dial.clone(),
+            dial: 0,
         }
+    }
+    /// The same level with dial setting `i` (a level without a dial, or an unknown setting, is unchanged). The dial
+    /// scales the tunable layers; placed sources and the level's fixed layers ignore it.
+    pub fn with_dial(&self, i: usize) -> SyncSpec {
+        let mut s = self.clone();
+        if let Some(v) = &self.dial_levels {
+            if let Some(&level) = v.get(i) {
+                s.field = self.field0.with_intensity(level);
+                if let Some(r) = &self.source_rules {
+                    for q in &self.sources {
+                        s.field = s.field.fixed(q.kind.term(q.pos, r.k, r.sigma));
+                    }
+                }
+                s.dial = i;
+            }
+        }
+        s
     }
     /// Where `p` would be refused for a new source, ignoring the other sources.
     pub fn site_error(&self, p: V2) -> Option<PlaceError> {
@@ -309,6 +332,15 @@ impl SyncGame {
             return false;
         }
         self.spec = self.spec.with_slot(i);
+        true
+    }
+    /// Choose the dial setting (levels with a dial only). Returns whether the setting changed.
+    pub fn set_dial(&mut self, i: usize) -> bool {
+        let n = self.spec.dial_levels.as_ref().map_or(0, |v| v.len());
+        if i >= n || i == self.spec.dial {
+            return false;
+        }
+        self.spec = self.spec.with_dial(i);
         true
     }
     /// Set probe `i`'s delay (snapped and clamped). Setting a delay flies nothing.

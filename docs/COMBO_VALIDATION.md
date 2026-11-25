@@ -10,6 +10,10 @@ Every number comes from the real simulation. Source searches use a 0.3 lattice o
 | cmb-8 Compensate | dial | 6/25 | 0 | 0 | 0 | 4.39 | 0.61 | yes | 4/4 |
 | cmb-9 Make Them Meet | source | 113/481 | 0 | 0 | 0 | 0.18 | 0.85 | not measured | 4/4 |
 | cmb-10 Route and Rendezvous | start slot | 2/5 | 0 | 0 | 0 | 2.54 | 0.78 | not measured | 4/4 |
+| cmb-23 Dial and Rendezvous | dial setting | 3/13 | 0 | 0 | 0 | 0.77 | 0.78 | not measured | 4/4 |
+| cmb-24 Dial and Time It | dial setting | 2/5 | 0 | 0 | 0 | 8.83 | 0.51 | not measured | 4/4 |
+| cmb-28 Meet the Drone | drone release | 3/25 | 0 | 0 | 0 | 0.64 | 0.80 | yes | 4/4 |
+| cmb-22 Set the Dial, Then Steer | dial setting | 3/13 | 0 | 0 | 0 | 4.41 | 0.84 | yes | 4/4 |
 | cmb-11 Catch the Gust | launch phase | 10/24 | 0 | 0 | 0 | 4.09 | 0.71 | yes | 4/4 |
 | cmb-12 Fewer Gusts | start point | 5/25 | 0 | 0 | 0 | 0.10 | 0.94 | yes | 4/4 |
 | cmb-13 Pave the Way | source | 120/905 | 0 | 0 | 0 | 1.43 | 0.79 | yes | 4/4 |
@@ -26,5 +30,7 @@ A hidden source from a pool (drawn at random each attempt, never the one just us
 | cmb-17 Scout, Then Steer | 3 | 1, 2, 4 | 1/3 | 1/3 | 3/3 | 3/3 | 100% | 3 | 4/4 |
 | cmb-18 Scout Through the Swirl | 3 | D, C, B | 1/3 | 1/3 | 3/3 | 3/3 | 100% | 3 | 4/4 |
 | cmb-19 Scout, Then Time It | 3 | 4, 2, 3 | 1/3 | 1/3 | 3/3 | 3/3 | 100% | 3 | 4/4 |
+| cmb-29 Scout, Then Time It II | 3 | 2, 20, 12 | 0/3 | 1/3 | 3/3 | 3/3 | 100% | 3 | 4/4 |
 | cmb-20 Cancel and Launch | 3 | 1-4, 6-4, 4-4 | 1/3 | 1/3 | 3/3 | 3/3 | 92% | 3 | 4/4 |
 | cmb-21 Cancel and Steer | 3 | 5-3, 7-3, 4-3 | 1/3 | 1/3 | 3/3 | 3/3 | 96% | 3 | 4/4 |
+| cmb-25 Cancel and Dial | 3 | 2-2, 7-2, 4-2 | 0/3 | 1/3 | 3/3 | 3/3 | 96% | 3 | 4/4 |

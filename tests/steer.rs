@@ -34,6 +34,8 @@ fn mk(
             period: None,
             start_zone: None,
             sources: None,
+            dial: None,
+            companion: None,
         },
         max_time: 40.0,
         seed: 1,

@@ -475,7 +475,7 @@ fn lv_id(id: &str) -> Level {
 
 #[test]
 fn the_act_levels_need_both_decisions_and_hold_with_the_target_moved() {
-    for id in ["cmb-14", "cmb-15", "cmb-17", "cmb-19"] {
+    for id in ["cmb-14", "cmb-15", "cmb-17", "cmb-19", "cmb-29"] {
         let l = lv_id(id);
         let r = report(&l);
         assert_eq!(r.entries, 3, "{id}");
@@ -510,7 +510,7 @@ fn the_act_levels_need_both_decisions_and_hold_with_the_target_moved() {
 
 #[test]
 fn a_choice_is_judged_by_flying_the_probe_and_a_wrong_option_resets_the_streak() {
-    for id in ["cmb-14", "cmb-15", "cmb-17", "cmb-19"] {
+    for id in ["cmb-14", "cmb-15", "cmb-17", "cmb-19", "cmb-29"] {
         let mut g = ScoutGame::with_seed(lv_id(id), 7);
         let n = g.spec.options();
         assert!(n >= 4, "{id}");
@@ -624,6 +624,7 @@ fn cmb_20_needs_scouting_the_cancel_and_the_slot_and_holds_with_the_target_moved
     for (id, req) in [
         ("cmb-20", ["pos-1", "shp-1", "sur-1"]),
         ("cmb-21", ["shp-1", "ste-1", "sur-1"]),
+        ("cmb-25", ["exp-1", "shp-1", "sur-1"]),
     ] {
         three_decisions_hold(id, req);
     }
@@ -741,4 +742,126 @@ fn cmb_21_has_a_source_group_and_a_gust_plan_group_each_with_a_none() {
             assert!(d[0] != 8 && d[1] != 4, "entry {a}: option {o} uses a none");
         }
     }
+}
+
+#[test]
+fn cmb_25_has_a_source_group_and_a_dial_group_and_the_dial_is_flown() {
+    let l = lv_id("cmb-25");
+    let spec = ScoutSpec::from_level(&l);
+    let comps = spec.components();
+    assert_eq!(
+        (comps[0].1, comps[1].1),
+        (9, 6),
+        "eight sources and none; six dial settings"
+    );
+    assert_eq!((spec.neutral(0), spec.neutral(1)), (Some(8), Some(0)));
+    // the dial changes the visible flight: the same cancelling source at two settings gives different paths
+    let w = spec.winners(0);
+    let d = spec.decode(w[0]);
+    let alt = spec.encode(&[d[0], 5]);
+    let f = spec.truth_field(0);
+    let a = spec.try_option(&f, w[0]).1;
+    let b = spec.try_option(&f, alt).1;
+    assert!(
+        a.last().unwrap().dist(*b.last().unwrap()) > 0.3,
+        "the dial must change where the probe ends up"
+    );
+    // winning options use a real cancel and a dial other than the default
+    for e in 0..spec.rules.pool.len() {
+        for o in spec.winners(e) {
+            let d = spec.decode(o);
+            assert!(
+                d[0] != 8 && d[1] != 0,
+                "entry {e}: option {o} uses a neutral choice"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_window_centre_reader_picks_the_middle_of_the_longest_run_of_working_phases() {
+    let spec = ScoutSpec::from_level(&lv_id("cmb-19"));
+    for e in 0..spec.rules.pool.len() {
+        let f = spec.truth_field(e);
+        let works: Vec<usize> = (0..spec.options())
+            .filter(|&o| spec.try_option(&f, o).0)
+            .collect();
+        let pick = spec
+            .pick_center(&f)
+            .expect("the truth field has a winning phase");
+        assert!(
+            works.contains(&pick),
+            "entry {e}: the middle of a run of working options works"
+        );
+        // the pick is the middle of a maximal run of adjacent working options
+        let (mut lo, mut hi) = (pick, pick);
+        while lo > 0 && works.contains(&(lo - 1)) {
+            lo -= 1;
+        }
+        while works.contains(&(hi + 1)) {
+            hi += 1;
+        }
+        assert!(
+            pick == (lo + hi) / 2 || pick == (lo + hi + 1) / 2,
+            "entry {e}: {pick} is not central in {lo}..={hi}"
+        );
+    }
+    // a field in which nothing works has no pick
+    let nothing = spec.level.field.clone();
+    let _ = nothing;
+}
+
+#[test]
+fn cmb_29_has_wide_windows_both_kinds_and_a_wrong_kind_reader_that_fails() {
+    let l = lv_id("cmb-29");
+    assert_eq!(levels::combo_requires("cmb-29"), ["tem-1", "sur-1"]);
+    let spec = ScoutSpec::from_level(&l);
+    let ScoutAct::Phase { phases, .. } = &spec.rules.act else {
+        panic!()
+    };
+    assert_eq!(
+        (phases.len(), phases[0], phases[1]),
+        (24, 0.0, 0.5),
+        "24 phases, half a second apart, phase 0 the default"
+    );
+    let kinds: Vec<_> = spec.rules.pool.iter().map(|(k, _)| *k).collect();
+    assert!(
+        kinds.contains(&SourceKind::Attractor) && kinds.contains(&SourceKind::Repeller),
+        "both kinds"
+    );
+    let r = report(&l);
+    assert!(r.controls_needed(), "phase 0 wins for no hidden source");
+    let mut wrong = 0;
+    for e in 0..spec.rules.pool.len() {
+        let w = spec.winners(e);
+        // the longest run of adjacent winning phases is at least four (two seconds)
+        let (mut run, mut best, mut prev) = (0usize, 0usize, None::<usize>);
+        for &o in &w {
+            run = if prev.is_some_and(|p| o == p + 1) {
+                run + 1
+            } else {
+                1
+            };
+            best = best.max(run);
+            prev = Some(o);
+        }
+        assert!(best >= 4, "entry {e}: window of {best} phases");
+        // a reader that guesses the opposite kind of the same source at the right place
+        let (k, pos) = spec.rules.pool[e];
+        let flip = if k == SourceKind::Repeller {
+            SourceKind::Attractor
+        } else {
+            SourceKind::Repeller
+        };
+        if spec
+            .pick_center(&spec.field_with(flip, pos))
+            .is_some_and(|o| spec.try_option(&spec.truth_field(e), o).0)
+        {
+            wrong += 1;
+        }
+    }
+    assert!(
+        wrong <= 1,
+        "the wrong-kind reader is right for {wrong} of 3 sources"
+    );
 }

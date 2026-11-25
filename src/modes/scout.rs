@@ -215,6 +215,8 @@ impl ScoutSpec {
                     period: None,
                     start_zone: None,
                     sources: None,
+                    dial: None,
+                    companion: None,
                 };
                 let spec = SteerSpec::from_level(&l);
                 let acts: Vec<Action> = p
@@ -261,6 +263,33 @@ impl ScoutSpec {
             }
         }
         best.map(|(o, _)| o)
+    }
+    /// The choice of a reader who aims at the middle of a window: among the options that succeed in `field`, the middle
+    /// of the longest run of adjacent ones (the first such run on a tie). For an ordered control such as the launch
+    /// phase, the first working option sits at the edge of its window, where a small error in the estimate of the
+    /// source loses it; a person would pick the middle.
+    pub fn pick_center(&self, field: &Field) -> Option<usize> {
+        let ok: Vec<bool> = (0..self.options())
+            .map(|o| self.try_option(field, o).0)
+            .collect();
+        let (mut best, mut best_len) = (None, 0usize);
+        let mut i = 0;
+        while i < ok.len() {
+            if ok[i] {
+                let mut j = i;
+                while j + 1 < ok.len() && ok[j + 1] {
+                    j += 1;
+                }
+                if j - i + 1 > best_len {
+                    best_len = j - i + 1;
+                    best = Some((i + j) / 2);
+                }
+                i = j + 1;
+            } else {
+                i += 1;
+            }
+        }
+        best
     }
     /// The option a reader who believes the field is `field` would choose: the first that succeeds there.
     pub fn pick_in(&self, field: &Field) -> Option<usize> {

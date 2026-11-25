@@ -229,6 +229,15 @@ pub struct SteerSources {
     pub sigma: f64,
 }
 
+/// A drone in a Steer level (Steer + Synchronize): it starts at `start`, flies the unsteered field by itself, and is released at one of `delays` (the first is the default). The steered probe succeeds only
+/// if it reaches the goal within `band` seconds of the drone's arrival.
+#[derive(Clone, Debug)]
+pub struct Companion {
+    pub start: V2,
+    pub delays: Vec<f64>,
+    pub band: f64,
+}
+
 /// The categorical act that ends an attempt of a scout-then-act level. Every act is a choice among a few wide,
 /// labelled options (docs/07-combinations.md: a continuous act, a placement or a start height, needs a precision a
 /// person cannot read off scout trails, so those designs failed).
@@ -324,6 +333,12 @@ pub enum Rules {
         period: Option<f64>,
         start_zone: Option<Rect>,
         sources: Option<SteerSources>,
+        /// Combination levels only: the player also chooses the dial setting (the intensity of the tunable layers, as
+        /// in Experiment) from these, before the first beat. The first is the default.
+        dial: Option<Vec<f64>>,
+        /// Combination levels only: a drone that flies the unsteered field by itself, released at a delay the player
+        /// chooses before the first beat; the steered probe must reach the goal within the drone's band of its arrival.
+        companion: Option<Companion>,
     },
     /// Hidden-source survey. `Level::field` is the *charted* background. A hidden local repeller
     /// (`Term::Gauss`, known strength `k` and width `sigma`) adds to it at one position, drawn from
@@ -399,11 +414,22 @@ pub enum Rules {
         conds: Vec<SyncCond>,
         sources: Option<SteerSources>,
         start_slots: Option<(usize, Vec<V2>)>,
+        /// Combination levels only: the player also chooses the dial setting (the intensity of the tunable layers, as
+        /// in Experiment) from these, before the delays. The first is the default.
+        dial: Option<Vec<f64>>,
     },
     /// Scout, then call (combination levels): see `ScoutRules`.
     Scout(ScoutRules),
     /// Choose the launch phase of a periodic field.
-    Tempo { start: V2, period: f64, goal: usize },
+    ///
+    /// `dial`: combination levels only. The player also chooses the dial setting (the intensity of the tunable layers,
+    /// as in Experiment) from these before launching; the first is the default.
+    Tempo {
+        start: V2,
+        period: f64,
+        goal: usize,
+        dial: Option<Vec<f64>>,
+    },
     /// Probe the intensity knob, then report the rule you found.
     Experiment {
         start: V2,

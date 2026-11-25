@@ -85,7 +85,13 @@ fn rules(l: &Level) -> Vec<String> {
                 Reveal::Partial(s) => format!("reveal before commit: the first {} s of the true path", n(*s)),
             },
         ],
-        Rules::Tempo { start, period, goal } => vec!["mechanic: **Tempo**".to_string(), format!("fixed start {}", v(*start)), format!("field period {} s", n(*period)), format!("goal region {} ({})", goal, l.regions[*goal].label)],
+        Rules::Tempo { start, period, goal, dial } => {
+            let mut lines = vec!["mechanic: **Tempo**".to_string(), format!("fixed start {}", v(*start)), format!("field period {} s", n(*period)), format!("goal region {} ({})", goal, l.regions[*goal].label)];
+            if let Some(d) = dial {
+                lines.push(format!("the dial is also chosen before the launch, from {} numbered settings ({}; the first is the default)", d.len(), d.iter().map(|x| n(*x)).collect::<Vec<_>>().join(", ")));
+            }
+            lines
+        }
         Rules::Experiment { start, range, challenge } => {
             let ch = match challenge {
                 Challenge::ExitShift { center } => format!("ExitShift about {}: clockwise / counter-clockwise / neither", v(*center)),
@@ -135,7 +141,7 @@ fn rules(l: &Level) -> Vec<String> {
                 format!("run time limit: {} s", n(l.max_time)),
             ]
         }
-        Rules::Synchronize { starts, goals, period, max_delay, conds, sources: sync_sources, start_slots } => {
+        Rules::Synchronize { starts, goals, period, max_delay, conds, sources: sync_sources, start_slots, dial } => {
             let mut lines = vec![
                 "mechanic: **Synchronize**".to_string(),
                 format!("{} probes fly the same field; the player chooses only each probe's release delay (0 to {} s, in steps of {} s; the field clock at release)", starts.len(), n(*max_delay), n(crate::modes::SYNC_DELAY_STEP)),
@@ -152,6 +158,9 @@ fn rules(l: &Level) -> Vec<String> {
             }
             if let Some((probe, slots)) = start_slots {
                 lines.push(format!("probe {} is also released from one of {} numbered start slots (slot 1 is its default): {}", probe, slots.len(), slots.iter().enumerate().map(|(i, p)| format!("{} at {}", i + 1, v(*p))).collect::<Vec<_>>().join(", ")));
+            }
+            if let Some(v) = dial {
+                lines.push(format!("the dial is also chosen first, from {} numbered settings ({}; the first is the default)", v.len(), v.iter().map(|x| n(*x)).collect::<Vec<_>>().join(", ")));
             }
             lines.push(format!("run time limit: {} s per probe", n(l.max_time)));
             lines
@@ -215,7 +224,7 @@ fn rules(l: &Level) -> Vec<String> {
             ),
 
         ],
-        Rules::Steer { start, beats, gust_budget, gust_strength, dirs, beat_time, goal, period, start_zone, sources } => vec![
+        Rules::Steer { start, beats, gust_budget, gust_strength, dirs, beat_time, goal, period, start_zone, sources, dial, companion } => vec![
             "mechanic: **Steer**".to_string(),
             format!("fixed start {}", v(*start)),
             format!("beats {}; gust budget {}; gust strength {}; beat length {} s", beats, gust_budget, n(*gust_strength), n(*beat_time)),
@@ -232,6 +241,14 @@ fn rules(l: &Level) -> Vec<String> {
             match sources {
                 Some(s) => format!("sources are also placed before the first beat: up to {} of {} (strength {}, width {}), inside the placement area", s.max, s.kinds.iter().map(|k| k.name()).collect::<Vec<_>>().join(" / "), n(s.k), n(s.sigma)),
                 None => "sources: none".into(),
+            },
+            match companion {
+                Some(c) => format!("a drone starts at {} and flies the unsteered field by itself, released at one of {} numbered delays ({} s; the first is the default); the steered probe must reach the goal within {} s of the drone's arrival", v(c.start), c.delays.len(), c.delays.iter().map(|x| n(*x)).collect::<Vec<_>>().join(", "), n(c.band)),
+                None => "companion drone: none".into(),
+            },
+            match dial {
+                Some(v) => format!("the dial is also chosen before the first beat, from {} numbered settings ({}; the first is the default)", v.len(), v.iter().map(|x| n(*x)).collect::<Vec<_>>().join(", ")),
+                None => "dial: not offered".into(),
             },
         ],
     }

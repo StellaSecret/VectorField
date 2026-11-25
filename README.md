@@ -14,7 +14,7 @@ A 2D puzzle game about steering a probe through a vector field, written in Rust
 | **Shape** | How should I change the field? | which sources to add, and where, then launch | creating the effect you want by changing the field |
 | **Synchronize** | How must these probes be coordinated? | when each of several probes is released | matching the timing of several trajectories (see docs/11-synchronize.md for how far this differs from Tempo) |
 
-39 levels across the eight mechanics (5 each for Position, Predict, Tempo, Experiment, Steer, Survey and Synchronize, 4 for Shape) and 21 combination levels. The evidence in the docs is automated: validation against the real simulation, with reader models standing in for players (`docs/09-survey.md`, `docs/10-shape.md`, `docs/11-synchronize.md`); playtest findings are not recorded there. See [docs/DESIGN.md](docs/DESIGN.md) for the per-mechanic
+39 levels across the eight mechanics (5 each for Position, Predict, Tempo, Experiment, Steer, Survey and Synchronize, 4 for Shape) and 27 combination levels. The evidence in the docs is automated: validation against the real simulation, with reader models standing in for players (`docs/09-survey.md`, `docs/10-shape.md`, `docs/11-synchronize.md`); playtest findings are not recorded there. See [docs/DESIGN.md](docs/DESIGN.md) for the per-mechanic
 design, and how the "these are really different" requirement is checked by automated tests.
 
 ## Run

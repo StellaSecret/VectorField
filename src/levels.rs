@@ -280,6 +280,7 @@ pub fn tempo_levels() -> Vec<Level> {
         start,
         period: T12,
         goal,
+        dial: None,
     };
     vec![
         hints(base("tem-1", Chapter::Tempo, "Two Moods", "The field has two phases. Launch in the right one.",
@@ -354,6 +355,8 @@ fn steer(start: V2, beats: usize, budget: usize, strength: f64, goal: usize) -> 
         period: None,
         start_zone: None,
         sources: None,
+        dial: None,
+        companion: None,
     }
 }
 
@@ -541,7 +544,7 @@ pub fn combo_levels() -> Vec<Level> {
         hints(base("cmb-3", Chapter::Combo, "Dodge", "Tempo + constraint: reach the target without touching the hazard.",
             Field::new().fixed(uni(2.5, 0.0)).fixed(Term::Modulated { inner: Box::new(uni(0.0, 1.0)), offset: 0.0, amp: 1.0, omega: w, phase: 0.0 }),
             vec![Region::target(4.5, 2.6, 0.9), Region::hazard(0.5, 0.8, 0.7)],
-            Rules::Tempo { start: v2(-4.5, 0.0), period: T12, goal: 0 }),
+            Rules::Tempo { start: v2(-4.5, 0.0), period: T12, goal: 0, dial: None }),
             &["Some launch times lift the probe straight through the hazard. Later ones pass above it."]),
         hints(base("cmb-4", Chapter::Combo, "Three Exits", "Experiment + multiple exits: find where exit C turns into exit D.",
             spiral(), ring_exits(),
@@ -588,7 +591,9 @@ pub fn combo_levels() -> Vec<Level> {
             Field::new().fixed(uni(1.90, 0.0)).fixed(mgauss(-0.08, -1.67, 5.43)).fixed(mgauss(0.97, 1.85, 1.47)),
             vec![Region::target(4.5, 0.0, 0.9)],
             Rules::Synchronize { starts: vec![v2(-5.0, -1.46), v2(-2.69, 1.13)], goals: vec![0, 0], period: T12, max_delay: T12, conds: vec![SyncCond::meet(0, 1, 0, -0.6, 0.6)], start_slots: None,
-                sources: Some(SteerSources { zones: vec![zr(-4.0, 0.3, 3.0, 3.0)], kinds: vec![SourceKind::Repeller, SourceKind::Attractor], max: 1, k: SHAPE_K, sigma: SHAPE_SIGMA }) }),
+                sources: Some(SteerSources { zones: vec![zr(-4.0, 0.3, 3.0, 3.0)], kinds: vec![SourceKind::Repeller, SourceKind::Attractor], max: 1, k: SHAPE_K, sigma: SHAPE_SIGMA }),
+ dial: None,
+ }),
             &[
                 "Launch both probes with no source and read the timeline. Each can reach the target at some release times, but their arrival times never come within the allowed band of each other.",
                 "A source changes the route of any probe that passes near it, and so changes when that probe arrives. It does not pulse: it pushes the same way at every release time.",
@@ -598,23 +603,78 @@ pub fn combo_levels() -> Vec<Level> {
         // the default slot the two arrival windows never come within the rendezvous band whatever the delays, and no
         // pair of delays near a simultaneous release works at any slot, so the slot and the delays are both
         // necessary. The choice of slot is categorical (docs/07-combinations.md: a start line failed because one
-        // window of the delays always reached a neighbouring start). Found by examples/search_sync.rs.
+        // window of the delays always reached a neighbouring start). Found by a random search (docs/07-combinations.md).
         hints(combo_sync("cmb-10", "Route and Rendezvous", "Synchronize + Position: choose where probe B starts, then time both probes to arrive together.",
             Field::new().fixed(uni(1.26, -0.16)).fixed(mgauss(-2.58, -0.68, 5.47)).fixed(mgauss(-1.06, -1.1, 0.2)),
             vec![Region::target(4.5, 0.25, 0.9)],
             Rules::Synchronize { starts: vec![v2(-5.0, 1.05), v2(-4.58, -2.14)], goals: vec![0, 0], period: T12, max_delay: T12, conds: vec![SyncCond::meet(0, 1, 0, -0.6, 0.6)], sources: None,
-                start_slots: Some((1, vec![v2(-4.58, -2.14), v2(-2.18, 1.09), v2(-3.05, 0.51), v2(-2.52, -1.15), v2(-4.83, -1.2)])) }),
+                start_slots: Some((1, vec![v2(-4.58, -2.14), v2(-2.18, 1.09), v2(-3.05, 0.51), v2(-2.52, -1.15), v2(-4.83, -1.2)])),
+ dial: None,
+ }),
             &[
                 "Probe B can start from any of the numbered markers. Launch both probes from the first marker and read the timeline: B can reach the target at some release times, but never within the allowed band of A's arrival, whatever you do with the delays.",
                 "Each start gives B a different route through the pulsing field, and so different release times at which it arrives, and different arrival times. Try the other markers and see which of them puts B's arrival into reach of A's.",
                 "Two of the five starts can work. Choose one, then use the delays to line the arrivals up; releasing both together does not work from any start.",
+            ]),
+        // cmb-23 Synchronize + Experiment. The dial scales the tunable layers (two pulsing lanes and a sideways drift) and
+        // is set before the delays. At the default setting the two probes' arrival windows never come within the
+        // rendezvous band whatever the delays, and no near-simultaneous release works at any setting, so the dial and
+        // the delays are both necessary. Of thirteen settings three adjacent ones admit a win. Found by a random
+        // search with the protocol as the filter (docs/07-combinations.md).
+        hints(combo_sync("cmb-23", "Dial and Rendezvous", "Synchronize + Experiment: set the dial, then time both probes to arrive together.",
+            Field::new().fixed(uni(1.41, 0.05)).tunable(mgauss(2.33, 0.89, 5.77)).tunable(mgauss(-2.71, -1.6, 4.88)).tunable(uni(-0.43, 0.34)),
+            vec![Region::target(4.5, 0.85, 0.9)],
+            Rules::Synchronize { starts: vec![v2(-5.0, -1.28), v2(-5.0, 0.08)], goals: vec![0, 0], period: T12, max_delay: T12, conds: vec![SyncCond::meet(0, 1, 0, -0.6, 0.6)], sources: None, start_slots: None, dial: Some(dial13()) }),
+            &[
+                "The dial scales only part of the field: the two pulsing lanes and a sideways drift. Launch both probes at the first setting and read the timeline: with this setting they can never be made to arrive together, whatever the delays.",
+                "Each setting changes when and where each probe reaches the target, so it changes the times at which they can arrive. Try the other settings, and watch which of them brings the two arrival windows into reach of each other.",
+                "Three neighbouring settings work. Choose one, then use the delays to line the arrivals up; releasing both together does not work at any setting.",
+            ]),
+        // cmb-24 Tempo + Experiment. The dial scales two pulsing sideways pushes (the steady stream ignores it) and is
+        // set before the launch phase. At the default setting no launch phase brings the probe to the target, and at no
+        // setting does launching at phase 0 or within 1.5 s of it, so the dial and the phase are both necessary. Of five
+        // settings two admit a window of launch phases. Found by a random search (docs/07-combinations.md).
+        hints(base("cmb-24", Chapter::Combo, "Dial and Time It", "Tempo + Experiment: set the dial, then choose when to launch.",
+            Field::new().fixed(uni(2.45, 0.03)).tunable(Term::Modulated { inner: Box::new(uni(0.0, 0.77)), offset: 0.0, amp: 0.92, omega: w, phase: 1.02 }).tunable(Term::Modulated { inner: Box::new(uni(-0.42, -0.77)), offset: 0.0, amp: 0.66, omega: w, phase: 0.6 }),
+            vec![Region::target(4.5, -1.93, 0.7)],
+            Rules::Tempo { start: v2(-4.5, 0.0), period: T12, goal: 0, dial: Some(vec![1.0, 0.0, 0.5, 1.5, 2.0]) }),
+            &[
+                "The dial scales only the two pulsing pushes; the steady stream ignores it. At the first setting there is no launch time that reaches the target: scrub the whole cycle and see.",
+                "Each setting changes how far the pulses push the probe, so it changes which part of the cycle carries it to the target. Try the other settings and scrub the clock again to find where the probe gets through.",
+                "Two of the five settings work. Launching at phase 0, or close to it, never works at any setting.",
+            ]),
+        // cmb-28 Steer + Synchronize. A drone flies the unsteered pulsing field by itself, released at one of 25 delays
+        // (0 to 12 s in half seconds); the steered probe has one strong gust and must reach the target within 0.6 s of
+        // the drone's arrival. The drone reaches the target only at some delays, and the gust cannot move the steered
+        // probe's arrival far, so only a few adjacent releases give a meeting: none works with no gust or at the
+        // default release. Found by a random search with the protocol as the filter (docs/07-combinations.md).
+        hints(base("cmb-28", Chapter::Combo, "Meet the Drone", "Steer + Synchronize: release the drone, then steer to arrive with it.",
+            Field::new().fixed(uni(1.14, 0.2)).fixed(Term::Modulated { inner: Box::new(uni(0.0, 0.84)), offset: 0.0, amp: 0.95, omega: w, phase: 6.14 }),
+            vec![Region::target(4.4, 0.5, 0.6)],
+            Rules::Steer { start: v2(-5.0, -2.38), beats: 10, gust_budget: 1, gust_strength: 2.0, dirs: GustDirs::Eight, beat_time: 1.0, goal: 0, period: None, start_zone: None, sources: None, dial: None, companion: Some(Companion { start: v2(-5.0, -2.41), delays: (0..=24).map(|d| d as f64 * 0.5).collect(), band: 0.6 }) }),
+            &[
+                "The drone (A) flies on its own and its path and arrival time are shown for the release you choose. At some releases it never reaches the target: choose another.",
+                "Your probe needs its gust to reach the target at all, and the gust shifts when it arrives only a little. Compare when the drone arrives with when your probe would arrive with no gust, and pick the release that brings the two closest.",
+                "The release cannot be changed once the first beat is played. Spend the gust on the beat that brings your probe to the target at the drone's time.",
+            ]),
+        // cmb-22 Steer + Experiment. The dial scales the tunable layers of the field and is set before the first beat;
+        // the single gust is too little to reach the target at the default dial, and the right setting lets the field
+        // do most of the work. Of thirteen settings three adjacent ones admit a winning gust, and no gust-free run wins
+        // at any setting. Found by a random search with the protocol as the filter (docs/07-combinations.md).
+        hints(base("cmb-22", Chapter::Combo, "Set the Dial, Then Steer", "Steer + Experiment: set the dial, then steer with one gust.",
+            Field::new().fixed(uni(1.02, -0.26)).tunable(uni(-0.22, 0.39)).tunable(vortex(2.17, -1.32, -1.6, 0.8)),
+            vec![Region::target(4.4, -0.47, 0.7)],
+            Rules::Steer { start: v2(-5.0, 0.0), beats: 8, gust_budget: 1, gust_strength: 1.0, dirs: GustDirs::Eight, beat_time: 1.0, goal: 0, period: None, start_zone: None, sources: None, dial: Some(dial13()), companion: None }),
+            &[
+                "One gust is not enough to reach the target at the dial setting you start with. Try the other settings and watch how the arrows change: the dial scales only part of the field.",
+                "Pick the setting whose flow carries the probe closest to the target on its own (a gust-free run shows it), then spend the gust where the field still falls short. The dial cannot be changed once the first beat is played.",
             ]),
         // cmb-11 Steer + Tempo. The flow pulses sideways and two gusts are too few to lift the probe to the target
         // from the default launch; the right launch time lets the pulse do most of the lifting.
         hints(base("cmb-11", Chapter::Combo, "Catch the Gust", "Steer + Tempo: choose when to start, then steer with two gusts.",
             Field::new().fixed(uni(1.2, 0.0)).fixed(Term::Modulated { inner: Box::new(uni(0.0, 1.0)), offset: 0.0, amp: 0.6, omega: w, phase: w * 5.0 }),
             vec![Region::target(4.4, 3.1, 0.5)],
-            Rules::Steer { start: v2(-5.0, 0.0), beats: 8, gust_budget: 2, gust_strength: 1.0, dirs: GustDirs::Eight, beat_time: 1.0, goal: 0, period: Some(T12), start_zone: None, sources: None }),
+            Rules::Steer { start: v2(-5.0, 0.0), beats: 8, gust_budget: 2, gust_strength: 1.0, dirs: GustDirs::Eight, beat_time: 1.0, goal: 0, period: Some(T12), start_zone: None, sources: None, dial: None, companion: None }),
             &[
                 "Two gusts are not enough to reach the target from the start you are given. Scrub the start time and watch which way the pulse pushes the probe.",
                 "Start when the pulse carries the probe up for most of the run, then use the gusts for the rest. The start time cannot be changed once the first beat is played.",
@@ -624,7 +684,7 @@ pub fn combo_levels() -> Vec<Level> {
         hints(base("cmb-12", Chapter::Combo, "Fewer Gusts", "Steer + Position: choose where to start, then steer with two gusts.",
             Field::new().fixed(uni(1.15, 0.0)).fixed(vortex(-2.7, 0.0, -2.1, 0.8)),
             vec![Region::target(4.0, 2.85, 0.5), Region::hazard(-0.15, 3.35, 0.9)],
-            Rules::Steer { start: v2(-5.0, 0.0), beats: 8, gust_budget: 2, gust_strength: 1.0, dirs: GustDirs::Eight, beat_time: 1.0, goal: 0, period: None, start_zone: Some(Rect::new(-5.0, -3.0, -5.0, 3.0)), sources: None }),
+            Rules::Steer { start: v2(-5.0, 0.0), beats: 8, gust_budget: 2, gust_strength: 1.0, dirs: GustDirs::Eight, beat_time: 1.0, goal: 0, period: None, start_zone: Some(Rect::new(-5.0, -3.0, -5.0, 3.0)), sources: None, dial: None, companion: None }),
             &[
                 "Two gusts are not enough from the start you are given. Click on the start line to move where the probe begins, before the first beat.",
                 "A higher start saves gusts, but the obstacle above the lane punishes a start that is too high. Look for the band between.",
@@ -635,7 +695,10 @@ pub fn combo_levels() -> Vec<Level> {
             Field::new().fixed(uni(1.12, 0.0)).fixed(vortex(-2.0, 0.97, 1.05, 0.8)),
             vec![Region::target(3.76, -2.05, 0.5), Region::hazard(-0.94, -0.9, 0.6)],
             Rules::Steer { start: v2(-5.0, 0.0), beats: 8, gust_budget: 1, gust_strength: 1.0, dirs: GustDirs::Eight, beat_time: 1.0, goal: 0, period: None, start_zone: None,
-                sources: Some(SteerSources { zones: vec![zr(-4.0, -3.0, 2.5, 3.0)], kinds: vec![SourceKind::Repeller, SourceKind::Attractor], max: 1, k: SHAPE_K, sigma: SHAPE_SIGMA }) }),
+                sources: Some(SteerSources { zones: vec![zr(-4.0, -3.0, 2.5, 3.0)], kinds: vec![SourceKind::Repeller, SourceKind::Attractor], max: 1, k: SHAPE_K, sigma: SHAPE_SIGMA }),
+                    dial: None,
+ companion: None,
+ }),
             &[
                 "With no source, play the run and watch where the field takes the probe: one gust cannot bring it to the target.",
                 "A source acts the whole way along the run, not just on one beat. Place it where it bends the flow toward the target and away from the obstacle.",
@@ -644,7 +707,7 @@ pub fn combo_levels() -> Vec<Level> {
         // cmb-14 Survey + Position, scout then release. The attempt ends with a *choice of release slot*, not a free
         // start height: a start height needs a precision a person cannot read off scout trails and, with wide
         // windows, one start serves several hidden sources (docs/07-combinations.md). Seven numbered slots, each
-        // hidden source has its own winning slots and no slot wins for two of them. Found by examples/search_act.rs.
+        // hidden source has its own winning slots and no slot wins for two of them. Found by a random search (docs/07-combinations.md).
         hints(combo_scout("cmb-14", "Scout, Then Release", "Survey + Position: scout the hidden source, then choose where to release the probe.",
             Field::new().fixed(uni(1.22, 0.11)).fixed(vortex(-0.75, -2.3, 1.9, 0.8)),
             vec![Region::target(4.5, 1.25, 0.8)],
@@ -722,7 +785,7 @@ pub fn combo_levels() -> Vec<Level> {
         // plans (a gust direction at chosen beats, at most two gusts, six beats), not a free sequence of gusts: a
         // closed-loop steer would show the probe's own flight and make the scouting unnecessary. Each hidden source
         // has exactly one plan that brings the probe to the target and no plan wins for two. Found by
-        // examples/search_act.rs (the plans are the robust exclusive winners of the hidden sources, plus a decoy).
+        // a random search (the plans are the robust exclusive winners of the hidden sources, plus a decoy).
         hints(combo_scout("cmb-17", "Scout, Then Steer", "Survey + Steer: scout the hidden source, then choose the gust plan that gets the probe to the target.",
             Field::new().fixed(uni(1.14, 0.13)).fixed(vortex(-1.45, 1.5, 2.85, 0.8)),
             vec![Region::target(4.5, 1.82, 1.0)],
@@ -758,7 +821,7 @@ pub fn combo_levels() -> Vec<Level> {
         // scout's path is bent by the swirl as well as by the hidden source, and the push has to be separated from the
         // swirl (the push is observed velocity minus the visible field's, so the arrows already do that). The three
         // hidden sources again send the probe to three different exits (found by random search, see
-        // examples/search_scout.rs and docs/07-combinations.md).
+        // docs/07-combinations.md).
         hints(combo_scout("cmb-18", "Scout Through the Swirl", "Survey + Predict: the background curves every flight. Scout the hidden source, then call the exit.",
             Field::new().fixed(uni(1.29, -0.14)).fixed(vortex(-0.81, -0.8, -2.54, 0.8)),
             vec![Region::new(RegionKind::Target, 4.5, 2.7, 1.0, 'A'), Region::new(RegionKind::Target, 4.5, 0.9, 1.0, 'B'), Region::new(RegionKind::Target, 4.5, -0.9, 1.0, 'C'), Region::new(RegionKind::Target, 4.5, -2.7, 1.0, 'D')],
@@ -782,7 +845,7 @@ pub fn combo_levels() -> Vec<Level> {
         // cmb-19 Survey + Tempo, scout then time it. The background pulses, so when the probe is released decides how
         // the pulse meets the hidden source's push; the attempt ends with a *choice of launch phase* among six (0, 2
         // ... 10 s of a 12 s period), the default being phase 0. Each hidden source has its own winning phase, the
-        // default phase wins for none, and no phase wins for two. Found by examples/search_act2.rs (phase).
+        // default phase wins for none, and no phase wins for two. Found by a random search (docs/07-combinations.md).
         hints(combo_scout("cmb-19", "Scout, Then Time It", "Survey + Tempo: scout the hidden source, then choose when to launch the probe.",
             Field::new().fixed(uni(1.13, 0.2)).fixed(Term::Modulated { inner: Box::new(uni(0.0, 0.88)), offset: 0.0, amp: 0.8, omega: TAU / T12, phase: 0.0 }),
             vec![Region::target(4.5, -0.29, 1.0)],
@@ -803,12 +866,37 @@ pub fn combo_levels() -> Vec<Level> {
                 "Scouts fly from phase 0 and show you the hidden source (yellow arrows point toward an attractor). Work out which way it will pull the probe, then think about which part of the pulse leaves the probe where the source's pull can finish the job.",
                 "The hidden source changes every attempt, and each one has its own right phase. Three right choices in a row.",
             ]),
+        // cmb-29 Survey + Tempo II. Like cmb-19 (launch phase after scouting a hidden source in a pulsing field), but the
+        // sources are of both kinds and the phases are 24, half a second apart, so a source's window is several phases
+        // wide. The reader that guesses the wrong kind is right for at most one source in three. Found by selection:
+        // for each sampled field the winning phases of every candidate source were computed, and three with wide,
+        // disjoint windows and both kinds were taken (docs/07-combinations.md).
+        hints(combo_scout("cmb-29", "Scout, Then Time It II", "Survey + Tempo: scout the hidden source (an attractor or a repeller), then choose when to launch the probe.",
+            Field::new().fixed(uni(1.37, 0.2)).fixed(Term::Modulated { inner: Box::new(uni(0.0, 1.14)), offset: 0.0, amp: 0.66, omega: TAU / T12, phase: 3.09 }),
+            vec![Region::target(4.5, -0.66, 1.0)],
+            Rules::Scout(ScoutRules {
+                act: ScoutAct::Phase { phases: (0..24).map(|k| k as f64 * 0.5).collect(), goal: 0 },
+                start: v2(-5.0, 0.0),
+                exits: vec![],
+                scouts: 3,
+                zone: Rect::new(-5.6, -3.0, -4.4, 3.0),
+                scout_time: 6.0,
+                pool: vec![(SourceKind::Repeller, v2(-2.0, 1.0)), (SourceKind::Repeller, v2(2.0, -2.0)), (SourceKind::Attractor, v2(-3.0, 0.0))],
+                k: 3.0,
+                sigma: 0.8,
+                streak: 3,
+            })),
+            &[
+                "The background pulses with a twelve-second rhythm, and the probe is released at the phase you choose: 1 is phase 0, 2 is half a second into the rhythm, and so on. Launching at phase 0 never works, whatever the hidden source.",
+                "Scouts fly from phase 0 and show you the hidden source. The yellow arrows point toward an attractor and away from a repeller, and the kind changes which way the source pushes the probe, so it changes which part of the pulse can make up for it.",
+                "The hidden source changes every attempt, and each one has its own stretch of good phases, several launches wide. Aim for the middle of it. Three right choices in a row.",
+            ]),
         // cmb-20 Survey + Shape + Position, the first level with three decisions: scout, then add a source and
         // choose a release slot, judged together by one flight. The hidden source sits on one of four places; the
         // opposite kind there cancels it (as in cmb-15), after which the probe still has to be released from one of the
         // slots that reach the target through the visible swirl (the default slot, far off the lane, never does).
         // Each control is needed: no cancel (none) and the default slot win for no hidden source, and no hidden
-        // source shares a winning cancel with another. Found by examples/search_act2.rs (shape_pos).
+        // source shares a winning cancel with another. Found by a random search (docs/07-combinations.md).
         hints(combo_scout("cmb-20", "Cancel and Launch", "Survey + Shape + Position: scout the hidden source, add a source to cancel it, and choose where to release the probe.",
             Field::new().fixed(uni(1.2, 0.21)).fixed(vortex(0.94, -1.43, 0.46, 0.8)),
             vec![Region::target(4.5, 1.63, 0.9)],
@@ -836,7 +924,7 @@ pub fn combo_levels() -> Vec<Level> {
         // plan (or none), judged together by one flight. The opposite kind at the hidden source's place cancels it
         // exactly (as in cmb-15); the visible swirl then still leaves the probe off the target, and a gust fixes
         // that. No cancel (none) and no gust (none) each win for no hidden source. Found by
-        // examples/search_act2.rs (shape_steer2): 1 design in 11,600 samples passed everything.
+        // a random search: 1 design in 11,600 samples passed everything.
         hints(combo_scout("cmb-21", "Cancel and Steer", "Survey + Shape + Steer: scout the hidden source, add a source to cancel it, and choose the gust plan that finishes the job.",
             Field::new().fixed(uni(1.0, 0.23)).fixed(vortex(-0.35, 1.03, 2.86, 0.8)),
             vec![Region::target(4.5, 0.27, 0.8)],
@@ -871,12 +959,48 @@ pub fn combo_levels() -> Vec<Level> {
                 "Scout the hidden source, read its kind from the yellow arrows, and add the opposite kind in the same place to cancel it. That alone leaves the probe off the target.",
                 "With the hidden push gone, the swirl and the stream still carry the probe past the target. Of the four gust plans, some finish the job. Fly a scout to see where the visible field takes a probe, then pick the plan that corrects it. Three right commits in a row.",
             ]),
+        // cmb-25 Survey + Shape + Experiment, built like cmb-20 and cmb-21: scout, then add a source (or none) and choose
+        // a dial setting, judged together by one flight. The opposite kind at the hidden source's place cancels it
+        // exactly (as in cmb-15), after which the probe flies the visible field, whose tunable drift the dial scales;
+        // only some settings bring it onto the target (the default does not). No cancel (none) and the default setting
+        // each win for no hidden source. Found by a random search (docs/07-combinations.md).
+        hints(combo_scout("cmb-25", "Cancel and Dial", "Survey + Shape + Experiment: scout the hidden source, add a source to cancel it, and set the dial that brings the probe to the target.",
+            Field::new().fixed(uni(1.16, 0.15)).tunable(uni(-0.21, -0.38)).tunable(vortex(0.09, 0.08, 0.13, 0.8)),
+            vec![Region::target(4.5, -0.68, 1.0)],
+            Rules::Scout(ScoutRules {
+                act: ScoutAct::Seq(vec![
+                    ScoutAct::Cancel { sites: vec![(SourceKind::Repeller, v2(-2.33, -1.31)), (SourceKind::Repeller, v2(-1.06, 0.73)), (SourceKind::Repeller, v2(0.82, 0.11)), (SourceKind::Repeller, v2(1.89, -1.74)), (SourceKind::Attractor, v2(-2.33, -1.31)), (SourceKind::Attractor, v2(-1.06, 0.73)), (SourceKind::Attractor, v2(0.82, 0.11)), (SourceKind::Attractor, v2(1.89, -1.74))], goal: 0 },
+                    ScoutAct::Dial { levels: vec![1.0, 0.5, 0.75, 1.25, 1.5, 2.0], goal: 0 },
+                ]),
+                start: v2(-5.0, 0.0),
+                exits: vec![],
+                scouts: 3,
+                zone: Rect::new(-5.6, -3.0, -4.4, 3.0),
+                scout_time: 6.0,
+                pool: vec![(SourceKind::Attractor, v2(-1.06, 0.73)), (SourceKind::Repeller, v2(0.82, 0.11)), (SourceKind::Attractor, v2(1.89, -1.74))],
+                k: 3.0,
+                sigma: 0.8,
+                streak: 3,
+            })),
+            &[
+                "Two groups of choices: a source to add (orange plus: a repeller, blue minus: an attractor, or none) and a dial setting. Commit them together. The first dial setting and \"none\" are never enough.",
+                "Scout the hidden source, read its kind from the yellow arrows, and add the opposite kind in the same place to cancel it. That alone leaves the probe off the target at the first dial setting.",
+                "With the hidden push gone the visible field decides. The dial scales only its tunable drift (the hidden source and the one you add ignore it), so some settings carry the probe onto the target and others do not. Fly a scout to see where the visible field takes a probe. Three right commits in a row.",
+            ]),
     ]
 }
 
 /// Shape levels. Every source uses the Survey source's profile (strength 1.65, width 0.8: peak push 0.8, felt out to
 /// 1.87), so a player who has met a hidden source has met this one. The probe is released at (-5, 0) and every level
 /// ends a run after 25 s (a probe that has not arrived by then is not going to).
+/// The 13 dial settings of the dial levels: the default (1.0) first, then 0.0 to 2.4 in steps of 0.2 without 1.0. A winning
+/// window of three adjacent settings is a quarter of them, which is what the protocol asks for (docs/07-combinations.md).
+fn dial13() -> Vec<f64> {
+    vec![
+        1.0, 0.0, 0.2, 0.4, 0.6, 0.8, 1.2, 1.4, 1.6, 1.8, 2.0, 2.2, 2.4,
+    ]
+}
+
 const SHAPE_K: f64 = 1.65;
 const SHAPE_SIGMA: f64 = 0.8;
 const SHAPE_START: V2 = v2(-5.0, 0.0);
@@ -941,10 +1065,10 @@ pub const COMBO_FAMILIES: [&str; 5] = [
 /// Which of `COMBO_FAMILIES` a combination level belongs to (an unknown id goes with the first).
 pub fn combo_family(id: &str) -> usize {
     match id {
-        "cmb-7" | "cmb-8" | "cmb-9" | "cmb-10" => 1,
+        "cmb-7" | "cmb-8" | "cmb-9" | "cmb-10" | "cmb-22" | "cmb-23" | "cmb-24" | "cmb-28" => 1,
         "cmb-11" | "cmb-12" | "cmb-13" => 2,
-        "cmb-14" | "cmb-15" | "cmb-16" | "cmb-17" | "cmb-18" | "cmb-19" => 3,
-        "cmb-20" | "cmb-21" => 4,
+        "cmb-14" | "cmb-15" | "cmb-16" | "cmb-17" | "cmb-18" | "cmb-19" | "cmb-29" => 3,
+        "cmb-20" | "cmb-21" | "cmb-25" => 4,
         _ => 0,
     }
 }
@@ -953,7 +1077,13 @@ pub fn combo_requires(id: &str) -> &'static [&'static str] {
         "cmb-7" | "cmb-8" => &["shp-1"],
         "cmb-9" => &["shp-1", "syn-1"],
         "cmb-10" => &["pos-1", "syn-1"],
+        "cmb-23" => &["syn-1", "exp-1"],
+        "cmb-24" => &["tem-1", "exp-1"],
+        "cmb-28" => &["ste-1", "syn-1"],
+        "cmb-25" => &["exp-1", "shp-1", "sur-1"],
+        "cmb-29" => &["tem-1", "sur-1"],
         "cmb-11" | "cmb-12" => &["ste-1"],
+        "cmb-22" => &["ste-1", "exp-1"],
         "cmb-13" => &["shp-1", "ste-1"],
         "cmb-16" | "cmb-18" => &["pre-1", "sur-1"],
         "cmb-14" => &["pos-1", "sur-1"],
@@ -1094,6 +1224,7 @@ fn sync_rules(starts: Vec<V2>, conds: Vec<SyncCond>) -> Rules {
         conds,
         sources: None,
         start_slots: None,
+        dial: None,
     }
 }
 fn sync_level(

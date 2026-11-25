@@ -19,7 +19,7 @@
 //!   Retry            `retry()` restores the exact initial state and keeps the finished run as a ghost.
 use crate::field::{Field, V2};
 
-use crate::level::{GustDirs, Level, Rules, SteerSources};
+use crate::level::{Companion, GustDirs, Level, Rules, SteerSources};
 use crate::modes::shape::{PlaceError, Source, MIN_SEPARATION};
 use crate::sim::{advance_beat, Outcome, Rect, Region, RegionKind, SimConfig};
 
@@ -41,6 +41,8 @@ pub enum FailReason {
     Hazard,
     MissedGate,
     WrongRegion,
+    /// Reached the goal, but not within the band of the companion drone's arrival.
+    MissedRendezvous,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,6 +141,14 @@ pub struct SteerSpec {
     pub sources: Vec<Source>,
     /// The level's own field, without sources: `field` is this plus one steady term per placed source.
     pub field0: Field,
+    /// Combination levels: the dial settings the player may choose from (the first is the default) and the one chosen.
+    pub dial_levels: Option<Vec<f64>>,
+    pub dial: usize,
+    /// Combination levels: the companion drone, the delay chosen for it, and when it reaches the goal (`None` if it
+    /// never does, in which case the steered probe cannot succeed).
+    pub companion: Option<Companion>,
+    pub drone: usize,
+    pub drone_arrival: Option<f64>,
 }
 
 impl SteerSpec {
@@ -154,11 +164,13 @@ impl SteerSpec {
             period,
             start_zone,
             sources,
+            dial,
+            companion,
         } = &l.rules
         else {
             panic!("not a Steer level")
         };
-        SteerSpec {
+        let mut sp = SteerSpec {
             field: l.field.clone(),
             regions: l.regions.clone(),
             cfg: l.sim_config(),
@@ -176,7 +188,69 @@ impl SteerSpec {
             source_rules: sources.clone(),
             sources: vec![],
             field0: l.field.clone(),
+            dial_levels: dial.clone(),
+            dial: 0,
+            companion: companion.clone(),
+            drone: 0,
+            drone_arrival: None,
+        };
+        sp.drone_arrival = sp.compute_drone();
+        sp
+    }
+    /// When the drone reaches the goal at the delay chosen now, or `None` if it does not (or there is no drone).
+    pub fn compute_drone(&self) -> Option<f64> {
+        let c = self.companion.as_ref()?;
+        let t = crate::sim::simulate(
+            &self.field,
+            c.start,
+            *c.delays.get(self.drone)?,
+            &self.regions,
+            &self.cfg,
+        );
+        if t.outcome != Outcome::Reached(self.goal) {
+            return None;
         }
+        let r = &self.regions[self.goal];
+        t.points
+            .iter()
+            .position(|p| p.dist(r.center) <= r.radius)
+            .map(|k| t.t0 + k as f64 * t.dt)
+    }
+    /// The path the drone flies at the delay chosen now (empty without a drone), for drawing.
+    pub fn drone_path(&self) -> Vec<V2> {
+        let Some(c) = &self.companion else {
+            return vec![];
+        };
+        let Some(&d) = c.delays.get(self.drone) else {
+            return vec![];
+        };
+        crate::sim::simulate(&self.field, c.start, d, &self.regions, &self.cfg).points
+    }
+    /// The same level with the drone released at delay `i` (a level without a drone, or an unknown delay, is unchanged).
+    pub fn with_drone(&self, i: usize) -> SteerSpec {
+        let mut s = self.clone();
+        if self.companion.as_ref().is_some_and(|c| i < c.delays.len()) {
+            s.drone = i;
+            s.drone_arrival = s.compute_drone();
+        }
+        s
+    }
+    /// The same level with dial setting `i` (a level without a dial, or an unknown setting, is unchanged). The dial
+    /// scales the tunable layers of the field; placed sources and the level's fixed layers ignore it.
+    pub fn with_dial(&self, i: usize) -> SteerSpec {
+        let mut s = self.clone();
+        if let Some(v) = &self.dial_levels {
+            if let Some(&level) = v.get(i) {
+                s.field = self.field0.with_intensity(level);
+                for q in &self.sources {
+                    if let Some(r) = &self.source_rules {
+                        s.field = s.field.fixed(q.kind.term(q.pos, r.k, r.sigma));
+                    }
+                }
+                s.dial = i;
+            }
+        }
+        s
     }
     /// Where `p` would be refused for a new source, ignoring the other sources.
     pub fn site_error(&self, p: V2) -> Option<PlaceError> {
@@ -316,10 +390,17 @@ impl SteerSpec {
         let gusts_left = s.gusts_left - usize::from(matches!(a, Action::Gust(_)));
         let end = match outcome {
             Some(Outcome::Reached(i)) if i == self.goal => {
-                if self.gates.iter().all(|g| gates.contains(g)) {
-                    Some(End::Success)
-                } else {
+                if !self.gates.iter().all(|g| gates.contains(g)) {
                     Some(End::Failed(FailReason::MissedGate))
+                } else if let Some(c) = &self.companion {
+                    // the steered probe entered the goal at the last point of this beat
+                    let arrived = t + points.len() as f64 * self.cfg.dt;
+                    match self.drone_arrival {
+                        Some(a) if (arrived - a).abs() <= c.band => Some(End::Success),
+                        _ => Some(End::Failed(FailReason::MissedRendezvous)),
+                    }
+                } else {
+                    Some(End::Success)
                 }
             }
             Some(Outcome::Reached(_)) => Some(End::Failed(FailReason::WrongRegion)),
@@ -411,6 +492,24 @@ impl SteerGame {
     }
     pub fn clock(&self) -> f64 {
         self.spec.clock0
+    }
+    /// Choose when the drone is released. Only before the first beat, and only in a level that has a drone.
+    pub fn set_drone(&mut self, i: usize) -> bool {
+        let n = self.spec.companion.as_ref().map_or(0, |c| c.delays.len());
+        if i >= n || i == self.spec.drone || self.phase != Phase::Ready {
+            return false;
+        }
+        self.spec = self.spec.with_drone(i);
+        true
+    }
+    /// Choose the dial setting. Only before the first beat, and only in a level that has a dial.
+    pub fn set_dial(&mut self, i: usize) -> bool {
+        let n = self.spec.dial_levels.as_ref().map_or(0, |v| v.len());
+        if i >= n || i == self.spec.dial || self.phase != Phase::Ready {
+            return false;
+        }
+        self.spec = self.spec.with_dial(i);
+        true
     }
     /// Choose the start point. Only before the first beat, only in a level with a start zone, and only at a legal point.
     pub fn set_start(&mut self, p: V2) -> bool {

@@ -20,6 +20,7 @@ when the player does X" and "what exactly can the player do", with enough detail
 | [09-survey.md](09-survey.md) | **Survey**: "Where is the hidden source?" |
 | [10-shape.md](10-shape.md) | **Shape**: "How should I change the field?" |
 | [11-synchronize.md](11-synchronize.md) | **Synchronize**: "How must these probes be coordinated?" |
+| [12-playtest.md](12-playtest.md) | **Playtest sheet** for the combination levels: what to record, what would count as a problem, and an answer key. |
 | [DESIGN.md](DESIGN.md) | The design rationale: architecture, why each mechanic exists, how levels were validated |
 | [LEVEL_CATALOG.md](LEVEL_CATALOG.md) | **Generated**: every parameter of every level (fields, regions, rules) |
 | [STEER_VALIDATION.md](STEER_VALIDATION.md), [SURVEY_VALIDATION.md](SURVEY_VALIDATION.md), [SHAPE_VALIDATION.md](SHAPE_VALIDATION.md), [SYNC_VALIDATION.md](SYNC_VALIDATION.md), [COMBO_VALIDATION.md](COMBO_VALIDATION.md) | **Generated**: the Steer, Survey, Shape, Synchronize and combination validation reports (`cargo run --release --bin report -- --steer` / `-- --survey` / `-- --shape` / `-- --sync` / `-- --combo`) |

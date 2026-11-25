@@ -147,9 +147,13 @@ pub fn report(level: &Level) -> ScoutReport {
         }
         // levels with several choices use the careful reader (the choice that survives the most nearby estimates)
         let careful = matches!(spec.rules.act, crate::level::ScoutAct::Seq(_));
+        // an ordered control (the launch phase) is read by aiming at the middle of a window of working options
+        let centered = matches!(spec.rules.act, crate::level::ScoutAct::Phase { .. });
         let right = |kind: SourceKind, h: V2| {
             let pick = if careful {
                 spec.pick_robust(kind, h, TOLERANCE_ERR)
+            } else if centered {
+                spec.pick_center(&spec.field_with(kind, h))
             } else {
                 spec.pick_in(&spec.field_with(kind, h))
             };

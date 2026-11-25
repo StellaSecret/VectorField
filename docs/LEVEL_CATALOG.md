@@ -393,6 +393,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - launch phase: fixed (0)
   - start point: fixed
   - sources: none
+  - companion drone: none
+  - dial: not offered
 
 ## ste-2 - Leverage (Steer)
 
@@ -413,6 +415,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - launch phase: fixed (0)
   - start point: fixed
   - sources: none
+  - companion drone: none
+  - dial: not offered
 
 ## ste-3 - Tipping Point (Steer)
 
@@ -434,6 +438,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - launch phase: fixed (0)
   - start point: fixed
   - sources: none
+  - companion drone: none
+  - dial: not offered
 
 ## ste-4 - The Long Way (Steer)
 
@@ -455,6 +461,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - launch phase: fixed (0)
   - start point: fixed
   - sources: none
+  - companion drone: none
+  - dial: not offered
 
 ## ste-5 - Set Up (Steer)
 
@@ -478,6 +486,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - launch phase: fixed (0)
   - start point: fixed
   - sources: none
+  - companion drone: none
+  - dial: not offered
 
 ## sur-1 - Something in the Stream (Survey)
 
@@ -1023,6 +1033,101 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - probe 1 is also released from one of 5 numbered start slots (slot 1 is its default): 1 at (-4.58, -2.14), 2 at (-2.18, 1.09), 3 at (-3.05, 0.51), 4 at (-2.52, -1.15), 5 at (-4.83, -1.2)
   - run time limit: 20 s per probe
 
+## cmb-23 - Dial and Rendezvous (Combinations)
+
+- objective: Synchronize + Experiment: set the dial, then time both probes to arrive together.
+- hint 1: The dial scales only part of the field: the two pulsing lanes and a sideways drift. Launch both probes at the first setting and read the timeline: with this setting they can never be made to arrive together, whatever the delays.
+- hint 2: Each setting changes when and where each probe reaches the target, so it changes the times at which they can arrive. Try the other settings, and watch which of them brings the two arrival windows into reach of each other.
+- hint 3: Three neighbouring settings work. Choose one, then use the delays to line the arrivals up; releasing both together does not work at any setting.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439869
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.41, 0.05)
+  2. tunable - modulated: [local radial push about (2.33, 0.89): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 9.77))
+  3. tunable - modulated: [local radial push about (-2.71, -1.6): v = k d exp(-|d|^2 / (2 sigma^2)), k = 1.65, sigma = 0.8 (repels; peak speed k sigma e^-1/2 at distance sigma; 5.5% of the peak at 3 sigma, 0.2% at 4 sigma)] x (0 + 1 sin(0.5235987755982988 t + 8.879999999999999))
+  4. tunable - uniform flow (-0.43, 0.34)
+  (default intensity 1)
+- regions:
+  0. target 'T' centre (4.5, 0.85) radius 0.9
+- rules:
+  - mechanic: **Synchronize**
+  - 2 probes fly the same field; the player chooses only each probe's release delay (0 to 12 s, in steps of 0.1 s; the field clock at release)
+  - field period 12 s
+  - probe 0 starts at (-5, -1.28) and must reach region 0 (T)
+  - probe 1 starts at (-5, 0.08) and must reach region 0 (T)
+  - condition: probe 1 must enter region 0 (T) between -0.6 and 0.6 s after probe 0 enters region 0 (T)
+  - the dial is also chosen first, from 13 numbered settings (1, 0, 0.2, 0.4, 0.6, 0.8, 1.2, 1.4, 1.6, 1.8, 2, 2.2, 2.4; the first is the default)
+  - run time limit: 20 s per probe
+
+## cmb-24 - Dial and Time It (Combinations)
+
+- objective: Tempo + Experiment: set the dial, then choose when to launch.
+- hint 1: The dial scales only the two pulsing pushes; the steady stream ignores it. At the first setting there is no launch time that reaches the target: scrub the whole cycle and see.
+- hint 2: Each setting changes how far the pulses push the probe, so it changes which part of the cycle carries it to the target. Try the other settings and scrub the clock again to find where the probe gets through.
+- hint 3: Two of the five settings work. Launching at phase 0, or close to it, never works at any setting.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 40 s; seed: 9150439870
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (2.45, 0.03)
+  2. tunable - modulated: [uniform flow (0, 0.77)] x (0 + 0.92 sin(0.5235987755982988 t + 1.02))
+  3. tunable - modulated: [uniform flow (-0.42, -0.77)] x (0 + 0.66 sin(0.5235987755982988 t + 0.6))
+  (default intensity 1)
+- regions:
+  0. target 'T' centre (4.5, -1.93) radius 0.7
+- rules:
+  - mechanic: **Tempo**
+  - fixed start (-4.5, 0)
+  - field period 12 s
+  - goal region 0 (T)
+  - the dial is also chosen before the launch, from 5 numbered settings (1, 0, 0.5, 1.5, 2; the first is the default)
+
+## cmb-28 - Meet the Drone (Combinations)
+
+- objective: Steer + Synchronize: release the drone, then steer to arrive with it.
+- hint 1: The drone (A) flies on its own and its path and arrival time are shown for the release you choose. At some releases it never reaches the target: choose another.
+- hint 2: Your probe needs its gust to reach the target at all, and the gust shifts when it arrives only a little. Compare when the drone arrives with when your probe would arrive with no gust, and pick the release that brings the two closest.
+- hint 3: The release cannot be changed once the first beat is played. Spend the gust on the beat that brings your probe to the target at the drone's time.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 40 s; seed: 9150439874
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.14, 0.2)
+  2. fixed - modulated: [uniform flow (0, 0.84)] x (0 + 0.95 sin(0.5235987755982988 t + 6.14))
+- regions:
+  0. target 'T' centre (4.4, 0.5) radius 0.6
+- rules:
+  - mechanic: **Steer**
+  - fixed start (-5, -2.38)
+  - beats 10; gust budget 1; gust strength 2; beat length 1 s
+  - gust directions: 8 (E, NE, N, NW, W, SW, S, SE)
+  - goal region 0 (T)
+  - launch phase: fixed (0)
+  - start point: fixed
+  - sources: none
+  - a drone starts at (-5, -2.41) and flies the unsteered field by itself, released at one of 25 numbered delays (0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12 s; the first is the default); the steered probe must reach the goal within 0.6 s of the drone's arrival
+  - dial: not offered
+
+## cmb-22 - Set the Dial, Then Steer (Combinations)
+
+- objective: Steer + Experiment: set the dial, then steer with one gust.
+- hint 1: One gust is not enough to reach the target at the dial setting you start with. Try the other settings and watch how the arrows change: the dial scales only part of the field.
+- hint 2: Pick the setting whose flow carries the probe closest to the target on its own (a gust-free run shows it), then spend the gust where the field still falls short. The dial cannot be changed once the first beat is played.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 40 s; seed: 9150439868
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.02, -0.26)
+  2. tunable - uniform flow (-0.22, 0.39)
+  3. tunable - vortex about (2.17, -1.32): v = k perp(d) / (|d|^2 + soft^2), k = -1.6, soft = 0.8 (clockwise)
+  (default intensity 1)
+- regions:
+  0. target 'T' centre (4.4, -0.47) radius 0.7
+- rules:
+  - mechanic: **Steer**
+  - fixed start (-5, 0)
+  - beats 8; gust budget 1; gust strength 1; beat length 1 s
+  - gust directions: 8 (E, NE, N, NW, W, SW, S, SE)
+  - goal region 0 (T)
+  - launch phase: fixed (0)
+  - start point: fixed
+  - sources: none
+  - companion drone: none
+  - the dial is also chosen before the first beat, from 13 numbered settings (1, 0, 0.2, 0.4, 0.6, 0.8, 1.2, 1.4, 1.6, 1.8, 2, 2.2, 2.4; the first is the default)
+
 ## cmb-11 - Catch the Gust (Combinations)
 
 - objective: Steer + Tempo: choose when to start, then steer with two gusts.
@@ -1043,6 +1148,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - launch phase is also chosen before the first beat, period 12 s
   - start point: fixed
   - sources: none
+  - companion drone: none
+  - dial: not offered
 
 ## cmb-12 - Fewer Gusts (Combinations)
 
@@ -1065,6 +1172,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - launch phase: fixed (0)
   - start point is also chosen inside [-5, -5] x [-3, 3] before the first beat
   - sources: none
+  - companion drone: none
+  - dial: not offered
 
 ## cmb-13 - Pave the Way (Combinations)
 
@@ -1088,6 +1197,8 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - launch phase: fixed (0)
   - start point: fixed
   - sources are also placed before the first beat: up to 1 of repeller / attractor (strength 1.65, width 0.8), inside the placement area
+  - companion drone: none
+  - dial: not offered
 
 ## cmb-14 - Scout, Then Release (Combinations)
 
@@ -1226,6 +1337,28 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - 3 correct choices in a row complete the level; a wrong one resets the streak
   - run time limit: 20 s
 
+## cmb-29 - Scout, Then Time It II (Combinations)
+
+- objective: Survey + Tempo: scout the hidden source (an attractor or a repeller), then choose when to launch the probe.
+- hint 1: The background pulses with a twelve-second rhythm, and the probe is released at the phase you choose: 1 is phase 0, 2 is half a second into the rhythm, and so on. Launching at phase 0 never works, whatever the hidden source.
+- hint 2: Scouts fly from phase 0 and show you the hidden source. The yellow arrows point toward an attractor and away from a repeller, and the kind changes which way the source pushes the probe, so it changes which part of the pulse can make up for it.
+- hint 3: The hidden source changes every attempt, and each one has its own stretch of good phases, several launches wide. Aim for the middle of it. Three right choices in a row.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439875
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.37, 0.2)
+  2. fixed - modulated: [uniform flow (0, 1.14)] x (0 + 0.66 sin(0.5235987755982988 t + 3.09))
+- regions:
+  0. target 'T' centre (4.5, -0.66) radius 1
+- rules:
+  - mechanic: **Scout, then time it (Survey + Tempo)**
+  - the main probe starts at (-5, 0) unless a choice moves it
+  - the field layers above are the visible background; a hidden source is added to it in every flight
+  - hidden sources (one is drawn at random each attempt, never the one just used; strength 3, width 0.8): repeller at (-2, 1), repeller at (2, -2), attractor at (-3, 0)
+  - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
+  - then choose the launch phase of the main probe from 24 numbered options (0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5 s; the first is the default), which must reach the target at (4.5, -0.66); the choice is committed before the probe flies
+  - 3 correct choices in a row complete the level; a wrong one resets the streak
+  - run time limit: 20 s
+
 ## cmb-20 - Cancel and Launch (Combinations)
 
 - objective: Survey + Shape + Position: scout the hidden source, add a source to cancel it, and choose where to release the probe.
@@ -1267,5 +1400,29 @@ World coordinates: x to the right, y up. Every level uses the bounds x in [-6, 6
   - hidden sources (one is drawn at random each attempt, never the one just used; strength 3, width 0.8): repeller at (-2.13, -1.45), repeller at (0.48, -1.51), attractor at (2.33, 0)
   - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
   - then, one after another: (1) choose one source to add from 9 numbered options, the last being none (1 repeller at (-2.13, -1.45), 2 repeller at (-1, -1.34), 3 repeller at (0.48, -1.51), 4 repeller at (2.33, 0), 5 attractor at (-2.13, -1.45), 6 attractor at (-1, -1.34), 7 attractor at (0.48, -1.51), 8 attractor at (2.33, 0)), same strength and width as the hidden ones; the probe from (-5, 0) must reach the target at (4.5, 0.27); (2) choose one of 5 fixed gust plans, the last being no gust (strength 1, 1 s per beat; 1: N at beat 3; 2: E at beat 1; 3: SE at beat 4; 4: S at beat 1) so that the probe from (-5, 0) reaches the target at (4.5, 0.27); all the choices are committed together and one flight judges them
+  - 3 correct choices in a row complete the level; a wrong one resets the streak
+  - run time limit: 20 s
+
+## cmb-25 - Cancel and Dial (Combinations)
+
+- objective: Survey + Shape + Experiment: scout the hidden source, add a source to cancel it, and set the dial that brings the probe to the target.
+- hint 1: Two groups of choices: a source to add (orange plus: a repeller, blue minus: an attractor, or none) and a dial setting. Commit them together. The first dial setting and "none" are never enough.
+- hint 2: Scout the hidden source, read its kind from the yellow arrows, and add the opposite kind in the same place to cancel it. That alone leaves the probe off the target at the first dial setting.
+- hint 3: With the hidden push gone the visible field decides. The dial scales only its tunable drift (the hidden source and the one you add ignore it), so some settings carry the probe onto the target and others do not. Fly a scout to see where the visible field takes a probe. Three right commits in a row.
+- bounds: x in [-6, 6], y in [-4, 4]; simulation time limit: 20 s; seed: 9150439871
+- field layers (summed; a *tunable* layer is multiplied by the intensity):
+  1. fixed - uniform flow (1.16, 0.15)
+  2. tunable - uniform flow (-0.21, -0.38)
+  3. tunable - vortex about (0.09, 0.08): v = k perp(d) / (|d|^2 + soft^2), k = 0.13, soft = 0.8 (counter-clockwise)
+  (default intensity 1)
+- regions:
+  0. target 'T' centre (4.5, -0.68) radius 1
+- rules:
+  - mechanic: **Scout, then act in several steps (Survey plus more than one other mechanic)**
+  - the main probe starts at (-5, 0) unless a choice moves it
+  - the field layers above are the visible background; a hidden source is added to it in every flight
+  - hidden sources (one is drawn at random each attempt, never the one just used; strength 3, width 0.8): attractor at (-1.06, 0.73), repeller at (0.82, 0.11), attractor at (1.89, -1.74)
+  - up to 3 scouts per attempt, started anywhere in [-5.6, -4.4] x [-3, 3], each flying 6 s; the push each feels is shown (as in Survey)
+  - then, one after another: (1) choose one source to add from 9 numbered options, the last being none (1 repeller at (-2.33, -1.31), 2 repeller at (-1.06, 0.73), 3 repeller at (0.82, 0.11), 4 repeller at (1.89, -1.74), 5 attractor at (-2.33, -1.31), 6 attractor at (-1.06, 0.73), 7 attractor at (0.82, 0.11), 8 attractor at (1.89, -1.74)), same strength and width as the hidden ones; the probe from (-5, 0) must reach the target at (4.5, -0.68); (2) choose the dial setting from 6 numbered options (1, 0.5, 0.75, 1.25, 1.5, 2; the first is the default; hidden sources ignore the dial), so that the probe reaches the target at (4.5, -0.68); all the choices are committed together and one flight judges them
   - 3 correct choices in a row complete the level; a wrong one resets the streak
   - run time limit: 20 s

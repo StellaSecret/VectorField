@@ -54,7 +54,7 @@ pub enum Axis {
     /// 0 is no source (the default), then every kind at every legal site of a lattice.
     Source,
     /// One probe of a Synchronize level starts from one of this many numbered slots; setting 0 is the default slot.
-    Slots(usize),
+    Slots(usize, &'static str),
 }
 
 /// The start points tried: the default first, then a lattice over the zone (every `START_STEP` in y, and in x when the
@@ -83,7 +83,7 @@ impl Axis {
             Axis::Dial(..) => "dial",
             Axis::Start(..) => "start point",
             Axis::Source => "source",
-            Axis::Slots(_) => "start slot",
+            Axis::Slots(_, name) => name,
         }
     }
     /// The start point of setting `i` (only for `Axis::Start`).
@@ -104,7 +104,7 @@ impl Axis {
             Axis::Start(z, d) => (0..start_points(z, d).len()).map(|i| i as f64).collect(),
             // the candidate list depends on the level's placement area, so `steer_report` builds the indices itself
             Axis::Source => vec![],
-            Axis::Slots(n) => (0..n).map(|i| i as f64).collect(),
+            Axis::Slots(n, _) => (0..n).map(|i| i as f64).collect(),
         }
     }
     /// Where the control starts when the level opens (phase 0, or the middle of the dial).
@@ -112,7 +112,7 @@ impl Axis {
         match self {
             Axis::Phase(_) => 0.0,
             Axis::Dial(a, b) => (a + b) * 0.5,
-            Axis::Start(..) | Axis::Source | Axis::Slots(_) => 0.0,
+            Axis::Start(..) | Axis::Source | Axis::Slots(..) => 0.0,
         }
     }
     /// Is `s` within the dead band of the default?
@@ -129,7 +129,7 @@ impl Axis {
                 .point(s as usize)
                 .is_some_and(|p| p.dist(d) <= START_DEAD + 1e-9),
             // no distance is meaningful for a source: only "no source at all" is the default
-            Axis::Source | Axis::Slots(_) => s == 0.0,
+            Axis::Source | Axis::Slots(..) => s == 0.0,
         }
     }
 }
@@ -163,6 +163,22 @@ pub fn axis_of(level: &Level) -> Option<Axis> {
             sources: Some(_),
             ..
         } => Some(Axis::Source),
+        Rules::Steer {
+            period: None,
+            start_zone: None,
+            sources: None,
+            dial: Some(v),
+            ..
+        } => Some(Axis::Slots(v.len(), "dial setting")),
+        Rules::Steer {
+            period: None,
+            start_zone: None,
+            sources: None,
+            dial: None,
+            companion: Some(c),
+            ..
+        } => Some(Axis::Slots(c.delays.len(), "drone release")),
+        Rules::Tempo { dial: Some(v), .. } => Some(Axis::Slots(v.len(), "dial setting")),
         Rules::Synchronize {
             sources: Some(_), ..
         } => Some(Axis::Source),
@@ -170,7 +186,13 @@ pub fn axis_of(level: &Level) -> Option<Axis> {
             start_slots: Some((_, v)),
             sources: None,
             ..
-        } => Some(Axis::Slots(v.len())),
+        } => Some(Axis::Slots(v.len(), "start slot")),
+        Rules::Synchronize {
+            dial: Some(v),
+            start_slots: None,
+            sources: None,
+            ..
+        } => Some(Axis::Slots(v.len(), "dial setting")),
         _ => None,
     }
 }
@@ -178,6 +200,10 @@ pub fn axis_of(level: &Level) -> Option<Axis> {
 /// Everything measured about one two-decision level.
 #[derive(Clone, Debug, Default)]
 pub struct ComboReport {
+    /// For each setting, the winning plans (an encoded gust plan, delay pair or launch phase); empty for Shape reports.
+    pub win_sets: Vec<BTreeSet<Vec<u8>>>,
+    /// The ordinal value of each setting (a dial value, a phase), in the order of `win_sets`.
+    pub setting_values: Vec<f64>,
     pub axis: &'static str,
     pub settings: usize,
     pub default_setting: f64,
@@ -249,7 +275,7 @@ fn shape_fly(
     match axis {
         Axis::Phase(_) => spec.fly_at(plan, setting, spec.default_intensity()),
         Axis::Dial(..) => spec.fly_at(plan, 0.0, setting),
-        Axis::Start(..) | Axis::Source | Axis::Slots(_) => {
+        Axis::Start(..) | Axis::Source | Axis::Slots(..) => {
             unreachable!("a Shape level has no start-point, slot or source control")
         }
     }
@@ -379,7 +405,9 @@ pub fn steer_report(level: &Level) -> ComboReport {
                         .map(|c| base.with_sources(&[*c]))
                 }
             }
-            Axis::Dial(..) | Axis::Slots(_) => None,
+            Axis::Slots(..) if base.companion.is_some() => Some(base.with_drone(s as usize)),
+            Axis::Slots(..) => Some(base.with_dial(s as usize)),
+            Axis::Dial(..) => None,
         }
     };
     let all_settings: Vec<f64> = match axis {
@@ -418,6 +446,14 @@ pub fn steer_report(level: &Level) -> ComboReport {
     r.settings_with_wins = per_setting.iter().filter(|n| **n > 0).count();
     r.win_fraction = total as f64 / runs.max(1) as f64;
     r.coupling = mean_jaccard(&win_sets);
+    r.win_sets = win_sets.clone();
+    r.setting_values = match &level.rules {
+        Rules::Steer { dial: Some(v), .. } => v.clone(),
+        Rules::Steer {
+            companion: Some(c), ..
+        } => c.delays.clone(),
+        _ => settings.clone(),
+    };
     r.peak_wins = per_setting.iter().copied().max().unwrap_or(0);
     // informed: scan with free natural (no-gust) runs and take the setting where the probe ends nearest the target
     let c = base.regions[base.goal].center;
@@ -428,10 +464,36 @@ pub fn steer_report(level: &Level) -> ComboReport {
             .map(|p| p.dist(c))
             .fold(f64::INFINITY, f64::min)
     };
+    // With a drone the scan is the anchor reader: read the drone's arrival time at each release and the time at which a
+    // gust-free run of the steered probe is nearest the goal, and take the release at which the two are closest (a
+    // person compares the two times, not the distance the probe ends at).
+    let anchor = |s: f64| {
+        let sp = spec_at(s).unwrap();
+        let Some(a) = sp.drone_arrival else {
+            return f64::INFINITY;
+        };
+        let path = crate::validate_steer::natural_run(&sp).path();
+        let k = path
+            .iter()
+            .enumerate()
+            .min_by(|x, y| x.1.dist(c).total_cmp(&y.1.dist(c)))
+            .map(|(k, _)| k)
+            .unwrap_or(0);
+        (a - k as f64 * sp.cfg.dt).abs()
+    };
     let (ii, _) = settings
         .iter()
         .enumerate()
-        .map(|(i, &s)| (i, nearest(s)))
+        .map(|(i, &s)| {
+            (
+                i,
+                if base.companion.is_some() {
+                    anchor(s)
+                } else {
+                    nearest(s)
+                },
+            )
+        })
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .unwrap();
     r.informed_setting = settings[ii];
@@ -465,11 +527,13 @@ pub fn sync_report(level: &Level, step: f64) -> ComboReport {
         (0..base.slots.as_ref().map_or(0, |(_, v)| v.len()))
             .map(|i| base.with_slot(i))
             .collect()
+    } else if let Some(v) = &base.dial_levels {
+        (0..v.len()).map(|i| base.with_dial(i)).collect()
     } else {
         let kinds = base
             .source_rules
             .as_ref()
-            .expect("a Synchronize combination level offers sources or start slots")
+            .expect("a Synchronize combination level offers sources, start slots or a dial")
             .kinds
             .clone();
         let sites = base.sites(step);
@@ -560,16 +624,85 @@ pub fn sync_report(level: &Level, step: f64) -> ComboReport {
     }
     r.win_fraction = total as f64 / (r.settings * nd * nd) as f64;
     r.coupling = mean_jaccard(&sets);
+    r.win_sets = sets
+        .iter()
+        .map(|st| st.iter().map(|(a, b)| vec![*a, *b]).collect())
+        .collect();
+    r.setting_values = match &level.rules {
+        Rules::Synchronize { dial: Some(v), .. } => v.clone(),
+        _ => (0..specs.len()).map(|i| i as f64).collect(),
+    };
     r.blind_setting_fraction = r.settings_with_wins as f64 / r.settings as f64;
     r
 }
 
 // ------------------------------------------------------------------ entry points
+/// Phases scanned for a Tempo level with a dial: this many evenly spaced launch phases per period.
+pub const TEMPO_PHASES: usize = 240;
+
+/// A Tempo level with a dial: the control is the dial setting (setting 0 is the default) and the plan is the launch
+/// phase. `none_wins` counts settings at which launching at phase 0 wins (the "plan" nobody chose), `default_wins`
+/// the winning phases at the default setting, `dead_wins` the winning phases within 1.5 s of phase 0 at any setting.
+pub fn tempo_report(level: &Level) -> ComboReport {
+    let Rules::Tempo {
+        start,
+        period,
+        goal,
+        dial: Some(levels),
+    } = &level.rules
+    else {
+        panic!("not a Tempo level with a dial")
+    };
+    let n = TEMPO_PHASES;
+    let mut r = ComboReport {
+        axis: "dial setting",
+        settings: levels.len(),
+        default_setting: 0.0,
+        dead_settings: 1,
+        ..Default::default()
+    };
+    let near = |i: usize| {
+        let ph = *period * i as f64 / n as f64;
+        ph.min(*period - ph) <= 1.5
+    };
+    let mut win_sets: Vec<BTreeSet<Vec<u8>>> = vec![];
+    let mut per_setting = vec![0usize; levels.len()];
+    for (si, &lv) in levels.iter().enumerate() {
+        let f = level.field.with_intensity(lv);
+        let wins: Vec<usize> = (0..n)
+            .filter(|&i| {
+                level.reached_goal(&level.run(&f, *start, *period * i as f64 / n as f64), *goal)
+            })
+            .collect();
+        if wins.contains(&0) {
+            r.none_wins += 1;
+        }
+        r.dead_wins += wins.iter().filter(|&&i| near(i)).count();
+        per_setting[si] = wins.len();
+        win_sets.push(
+            wins.iter()
+                .map(|&i| vec![(i % 256) as u8, (i / 256) as u8])
+                .collect(),
+        );
+    }
+    r.default_wins = per_setting[0];
+    r.settings_with_wins = per_setting.iter().filter(|&&c| c > 0).count();
+    r.win_fraction = per_setting.iter().sum::<usize>() as f64 / (n * levels.len()) as f64;
+    r.coupling = mean_jaccard(&win_sets);
+    r.win_sets = win_sets.clone();
+    r.setting_values = levels.clone();
+    r.peak_wins = per_setting.iter().copied().max().unwrap_or(0);
+    r.blind_setting_fraction = r.settings_with_wins as f64 / levels.len() as f64;
+    r.informed_measured = false;
+    r
+}
+
 pub fn report_for(level: &Level, step: f64) -> ComboReport {
     match &level.rules {
         Rules::Shape { .. } => shape_report(level, step),
         Rules::Steer { .. } => steer_report(level),
         Rules::Synchronize { .. } => sync_report(level, step),
+        Rules::Tempo { .. } => tempo_report(level),
         _ => panic!("not a two-decision combination level"),
     }
 }
@@ -629,4 +762,197 @@ pub fn report(levels: &[Level]) -> String {
         ));
     }
     s
+}
+
+/// The measures of the combination protocol that follow from a level's win sets (docs/07-combinations.md, "The
+/// protocol"): how far the winning (setting, plan) pairs are from a product, how wide and where the winning band of
+/// settings is, whether the two controls trade off along a diagonal, and how often a random setting admits a win.
+#[derive(Clone, Debug, Default)]
+pub struct ProtocolReport {
+    /// |W| / (|settings with a win| x |plans that win anywhere|): 1 means W is a product of two independent choices.
+    pub fill_ratio: f64,
+    /// The longest run of adjacent winning settings, in the order of their values.
+    pub longest_window: usize,
+    /// No winning setting is the lowest or the highest setting.
+    pub interior: bool,
+    /// Spearman correlation of the winning (setting value, phase) pairs; only for Tempo levels, where both are ordinal.
+    pub spearman: Option<f64>,
+    /// Share of settings that admit a win (what a random setting achieves).
+    pub blind_fraction: f64,
+    /// How many times better an informed scan is than a random setting, when the informed scan was measured.
+    pub informed_over_blind: Option<f64>,
+    pub coupling: f64,
+}
+
+impl ProtocolReport {
+    /// The names of the protocol measures that fail, with their thresholds.
+    pub fn failures(&self) -> Vec<&'static str> {
+        let mut f = vec![];
+        if self.fill_ratio > 0.5 {
+            f.push("fill ratio above 0.5 (winning pairs look like a product)");
+        }
+        if self.longest_window < 3 {
+            f.push("winning window narrower than 3 adjacent settings");
+        }
+        if !self.interior {
+            f.push("winning band touches an end of the dial");
+        }
+        if self.spearman.is_some_and(|s| s.abs() > 0.8) {
+            f.push("winning pairs lie on a thin diagonal (|Spearman| above 0.8)");
+        }
+        if self.blind_fraction > 0.5 {
+            f.push("a random setting admits a win more than half the time");
+        }
+        if self.informed_over_blind.is_some_and(|x| x < 4.0) {
+            f.push("informed scan less than 4x a random setting");
+        }
+        if self.coupling < 0.5 {
+            f.push("coupling below 0.5");
+        }
+        f
+    }
+}
+
+fn ranks(v: &[f64]) -> Vec<f64> {
+    let mut idx: Vec<usize> = (0..v.len()).collect();
+    idx.sort_by(|&a, &b| v[a].partial_cmp(&v[b]).unwrap());
+    let mut r = vec![0.0; v.len()];
+    let mut i = 0;
+    while i < idx.len() {
+        let mut j = i;
+        while j + 1 < idx.len() && v[idx[j + 1]] == v[idx[i]] {
+            j += 1;
+        }
+        let avg = (i + j) as f64 / 2.0;
+        for k in i..=j {
+            r[idx[k]] = avg;
+        }
+        i = j + 1;
+    }
+    r
+}
+
+fn spearman(x: &[f64], y: &[f64]) -> Option<f64> {
+    if x.len() < 3 {
+        return None;
+    }
+    let (rx, ry) = (ranks(x), ranks(y));
+    let n = x.len() as f64;
+    let (mx, my) = (rx.iter().sum::<f64>() / n, ry.iter().sum::<f64>() / n);
+    let (mut sxy, mut sxx, mut syy) = (0.0, 0.0, 0.0);
+    for i in 0..x.len() {
+        sxy += (rx[i] - mx) * (ry[i] - my);
+        sxx += (rx[i] - mx).powi(2);
+        syy += (ry[i] - my).powi(2);
+    }
+    if sxx == 0.0 || syy == 0.0 {
+        return None;
+    }
+    Some(sxy / (sxx * syy).sqrt())
+}
+
+/// The protocol measures for a level that has a pre-run control and a plan (a dial, start slots or a launch phase with a
+/// plan). Panics for levels whose report has no win sets (Shape levels).
+pub fn protocol(level: &Level) -> ProtocolReport {
+    let r = report_for(level, SITE_STEP);
+    assert!(
+        !r.win_sets.is_empty(),
+        "this level's report has no win sets"
+    );
+    let n = r.win_sets.len();
+    let values: Vec<f64> = if r.setting_values.len() == n {
+        r.setting_values.clone()
+    } else {
+        (0..n).map(|i| i as f64).collect()
+    };
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| values[a].partial_cmp(&values[b]).unwrap());
+    let wins: Vec<bool> = order.iter().map(|&i| !r.win_sets[i].is_empty()).collect();
+    let (mut run, mut longest) = (0usize, 0usize);
+    for &w in &wins {
+        run = if w { run + 1 } else { 0 };
+        longest = longest.max(run);
+    }
+    let total: usize = r.win_sets.iter().map(|s| s.len()).sum();
+    let proj_a = r.win_sets.iter().filter(|s| !s.is_empty()).count();
+    let mut plans: BTreeSet<&Vec<u8>> = BTreeSet::new();
+    for s in &r.win_sets {
+        plans.extend(s.iter());
+    }
+    let fill = if proj_a * plans.len() == 0 {
+        0.0
+    } else {
+        total as f64 / (proj_a * plans.len()) as f64
+    };
+    let spearman_v = if matches!(level.rules, Rules::Tempo { .. }) {
+        let (mut xs, mut ys) = (vec![], vec![]);
+        for (si, s) in r.win_sets.iter().enumerate() {
+            for p in s {
+                xs.push(values[si]);
+                ys.push(p[0] as f64 + 256.0 * p[1] as f64);
+            }
+        }
+        spearman(&xs, &ys)
+    } else {
+        None
+    };
+    let blind = r.settings_with_wins as f64 / n as f64;
+    ProtocolReport {
+        fill_ratio: fill,
+        longest_window: longest,
+        interior: !wins.first().copied().unwrap_or(false) && !wins.last().copied().unwrap_or(false),
+        spearman: spearman_v,
+        blind_fraction: blind,
+        informed_over_blind: if r.informed_measured && r.informed_admits_win && blind > 0.0 {
+            Some(1.0 / blind)
+        } else {
+            None
+        },
+        coupling: r.coupling,
+    }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+
+    #[test]
+    fn ranks_average_ties_and_spearman_sees_monotone_and_flat_data() {
+        assert_eq!(ranks(&[3.0, 1.0, 2.0, 2.0]), vec![3.0, 0.0, 1.5, 1.5]);
+        let x = [1.0, 2.0, 3.0, 4.0, 5.0];
+        assert!((spearman(&x, &[10.0, 20.0, 30.0, 40.0, 50.0]).unwrap() - 1.0).abs() < 1e-12);
+        assert!((spearman(&x, &[50.0, 40.0, 30.0, 20.0, 10.0]).unwrap() + 1.0).abs() < 1e-12);
+        assert!(
+            spearman(&x, &[7.0; 5]).is_none(),
+            "a constant has no rank correlation"
+        );
+        assert!(
+            spearman(&x[..2], &x[..2]).is_none(),
+            "two points say nothing"
+        );
+    }
+
+    #[test]
+    fn failures_name_each_measure_that_misses_its_threshold() {
+        let good = ProtocolReport {
+            fill_ratio: 0.3,
+            longest_window: 4,
+            interior: true,
+            spearman: Some(0.2),
+            blind_fraction: 0.2,
+            informed_over_blind: Some(5.0),
+            coupling: 0.8,
+        };
+        assert!(good.failures().is_empty());
+        let bad = ProtocolReport {
+            fill_ratio: 0.9,
+            longest_window: 1,
+            interior: false,
+            spearman: Some(-0.95),
+            blind_fraction: 0.7,
+            informed_over_blind: Some(1.4),
+            coupling: 0.1,
+        };
+        assert_eq!(bad.failures().len(), 7);
+    }
 }

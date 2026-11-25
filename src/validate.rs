@@ -41,6 +41,7 @@ pub fn tempo_success_by_phase(level: &Level, n: usize) -> Vec<bool> {
         start,
         period,
         goal,
+        ..
     } = &level.rules
     else {
         return vec![];
@@ -148,6 +149,7 @@ pub fn solvable(level: &Level) -> bool {
                 && predict::pick_rounds(level, 0).len() == *rounds
                 && *pass <= *rounds
         }
+        Rules::Tempo { dial: Some(_), .. } => crate::validate_combo::solvable(level),
         Rules::Tempo { .. } => tempo_success_by_phase(level, 240).iter().any(|b| *b),
         Rules::Experiment { .. } => experiment::truth(level).is_some(),
         Rules::Steer {
@@ -159,6 +161,10 @@ pub fn solvable(level: &Level) -> bool {
         }
         | Rules::Steer {
             sources: Some(_), ..
+        }
+        | Rules::Steer { dial: Some(_), .. }
+        | Rules::Steer {
+            companion: Some(_), ..
         } => crate::validate_combo::solvable(level),
         Rules::Steer { .. } => {
             crate::validate_steer::enumerate(&crate::modes::SteerSpec::from_level(level)).successes
@@ -177,7 +183,8 @@ pub fn solvable(level: &Level) -> bool {
         | Rules::Synchronize {
             start_slots: Some(_),
             ..
-        } => crate::validate_combo::solvable(level),
+        }
+        | Rules::Synchronize { dial: Some(_), .. } => crate::validate_combo::solvable(level),
         Rules::Synchronize { .. } => crate::validate_sync::solvable(level),
         Rules::Scout(_) => crate::validate_scout::solvable(level),
     }
@@ -271,6 +278,7 @@ pub fn summarize(level: &Level) -> String {
                 exits
             )
         }
+        Rules::Tempo { dial: Some(_), .. } => crate::validate_combo::summarize(level),
         Rules::Tempo { .. } => {
             let f = tempo_success_by_phase(level, 240);
             let (w, frac) = tempo_windows(&f);
@@ -291,6 +299,10 @@ pub fn summarize(level: &Level) -> String {
         }
         | Rules::Steer {
             sources: Some(_), ..
+        }
+        | Rules::Steer { dial: Some(_), .. }
+        | Rules::Steer {
+            companion: Some(_), ..
         } => crate::validate_combo::summarize(level),
         Rules::Steer { .. } => {
             let c = crate::validate_steer::check(level);
@@ -309,7 +321,8 @@ pub fn summarize(level: &Level) -> String {
         | Rules::Synchronize {
             start_slots: Some(_),
             ..
-        } => crate::validate_combo::summarize(level),
+        }
+        | Rules::Synchronize { dial: Some(_), .. } => crate::validate_combo::summarize(level),
         Rules::Synchronize { .. } => crate::validate_sync::summarize(level),
         Rules::Scout(_) => crate::validate_scout::summarize(level),
     }
@@ -340,10 +353,15 @@ pub fn oracle_win(level: &Level) -> bool {
         }
         Rules::Tempo { period, .. } => {
             let mut g = TempoGame::new(level.clone());
-            for i in 0..240 {
-                g.set_phase(period * i as f64 / 240.0);
-                if g.launch().success {
-                    return true;
+            // a level with a dial may need a setting other than the default
+            let settings = g.dial_levels().map_or(1, |v| v.len());
+            for d in 0..settings {
+                g.set_dial(d);
+                for i in 0..240 {
+                    g.set_phase(period * i as f64 / 240.0);
+                    if g.launch().success {
+                        return true;
+                    }
                 }
             }
             false

@@ -17,7 +17,7 @@ pub mod validate_sync;
 
 pub use field::{v2, Field, Layer, SourceKind, Term, V2};
 pub use level::{
-    Challenge, Chapter, GustDirs, Level, Reveal, Rules, ScoutAct, ScoutRules, Slot, SteerSources,
-    SurveyGoal, SyncCond, Zone,
+    Challenge, Chapter, Companion, GustDirs, Level, Reveal, Rules, ScoutAct, ScoutRules, Slot,
+    SteerSources, SurveyGoal, SyncCond, Zone,
 };
 pub use sim::{simulate, Outcome, Rect, Region, RegionKind, SimConfig, Trajectory};

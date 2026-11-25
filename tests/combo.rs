@@ -4,8 +4,9 @@ use vfield::modes::*;
 use vfield::validate_combo::*;
 use vfield::*;
 
-const TWO: [&str; 7] = [
-    "cmb-7", "cmb-8", "cmb-9", "cmb-10", "cmb-11", "cmb-12", "cmb-13",
+const TWO: [&str; 11] = [
+    "cmb-7", "cmb-8", "cmb-9", "cmb-10", "cmb-23", "cmb-24", "cmb-28", "cmb-11", "cmb-12",
+    "cmb-13", "cmb-22",
 ];
 
 /// Each report is a few seconds of simulation and many tests read the same ones, so compute them once per run.
@@ -58,8 +59,9 @@ fn the_new_levels_are_in_the_combination_chapter_after_the_old_six() {
         ids,
         [
             "cmb-1", "cmb-2", "cmb-3", "cmb-4", "cmb-5", "cmb-6", "cmb-7", "cmb-8", "cmb-9",
-            "cmb-10", "cmb-11", "cmb-12", "cmb-13", "cmb-14", "cmb-15", "cmb-16", "cmb-17",
-            "cmb-18", "cmb-19", "cmb-20", "cmb-21"
+            "cmb-10", "cmb-23", "cmb-24", "cmb-28", "cmb-22", "cmb-11", "cmb-12", "cmb-13",
+            "cmb-14", "cmb-15", "cmb-16", "cmb-17", "cmb-18", "cmb-19", "cmb-29", "cmb-20",
+            "cmb-21", "cmb-25"
         ]
     );
     for id in TWO {
@@ -129,7 +131,7 @@ fn removing_either_decision_makes_every_level_unwinnable() {
 fn the_dead_band_is_wide_enough_to_mean_something() {
     for id in TWO {
         let r = rep(id);
-        if let Some(Axis::Slots(n)) = axis_of(&lv(id)) {
+        if let Some(Axis::Slots(n, _)) = axis_of(&lv(id)) {
             // a numbered slot has no distance from the default slot: the dead band is the default itself
             assert_eq!(r.dead_settings, 1, "{id}");
             assert_eq!(r.settings, n, "{id}");
@@ -323,7 +325,7 @@ fn winning_play(id: &str) -> (f64, ShapeSource) {
                 match axis {
                     Axis::Phase(_) => g.set_phase(s),
                     Axis::Dial(..) => g.set_intensity(s),
-                    Axis::Start(..) | Axis::Source | Axis::Slots(_) => {
+                    Axis::Start(..) | Axis::Source | Axis::Slots(..) => {
                         unreachable!("Shape levels have no start-point, slot or source control")
                     }
                 }
@@ -348,7 +350,7 @@ fn each_shape_level_is_won_by_the_pair_and_lost_by_either_half() {
             match axis {
                 Axis::Phase(_) => g.set_phase(setting),
                 Axis::Dial(..) => g.set_intensity(setting),
-                Axis::Start(..) | Axis::Source | Axis::Slots(_) => {
+                Axis::Start(..) | Axis::Source | Axis::Slots(..) => {
                     unreachable!("Shape levels have no start-point, slot or source control")
                 }
             }
@@ -993,6 +995,8 @@ fn combination_levels_are_grouped_in_contiguous_families_that_fit_the_select_scr
     }
     assert_eq!(levels::combo_family("cmb-10"), 1, "the two-control levels");
     assert_eq!(levels::combo_family("cmb-13"), 2, "set up, then steer");
+    assert_eq!(levels::combo_family("cmb-22"), 1, "a dial before the run");
+    assert_eq!(levels::combo_family("cmb-29"), 3, "learn, then act");
     assert_eq!(levels::combo_family("cmb-17"), 3, "learn, then act");
     assert_eq!(levels::combo_family("cmb-20"), 4, "three decisions");
     // the select screen puts families 0 and 1 in the left column and the others in the right one. Each column's
@@ -1011,4 +1015,347 @@ fn combination_levels_are_grouped_in_contiguous_families_that_fit_the_select_scr
         let pitch = ((575.0 - 26.0 * heads as f32) / rows as f32).clamp(36.0, 44.0);
         assert!(pitch >= 36.0);
     }
+}
+
+// ---------------------------------------------------------------- Steer: a dial chosen before the first beat (cmb-22)
+#[test]
+fn the_steer_dial_is_chosen_before_the_first_beat_and_changes_the_field() {
+    let mut g = SteerGame::new(lv("cmb-22"));
+    let levels = g.spec.dial_levels.clone().expect("cmb-22 offers a dial");
+    assert_eq!((levels.len(), g.spec.dial), (13, 0));
+    assert_eq!(levels[0], 1.0, "the first setting is the default");
+    assert!(
+        !g.set_dial(0),
+        "choosing the setting already chosen changes nothing"
+    );
+    assert!(!g.set_dial(levels.len()), "there is no fourteenth setting");
+    let p = v2(0.0, 1.0);
+    let before = g.spec.field.eval(p, 0.0);
+    assert!(g.set_dial(1));
+    let after = g.spec.field.eval(p, 0.0);
+    assert!(before.dist(after) > 0.05, "the dial must change the arrows");
+    // once the first beat is played the dial is locked
+    g.step(Action::Wait).unwrap();
+    assert!(!g.set_dial(2));
+    assert_eq!(g.spec.dial, 1);
+    // levels without a dial ignore it
+    for l in levels::steer_levels() {
+        let mut g = SteerGame::new(l);
+        assert!(g.spec.dial_levels.is_none() && !g.set_dial(1));
+    }
+}
+
+#[test]
+fn cmb_22_needs_the_dial_and_the_gust_and_a_win_exists() {
+    let l = lv("cmb-22");
+    assert_eq!(levels::combo_requires("cmb-22"), ["ste-1", "exp-1"]);
+    let r = rep("cmb-22");
+    assert_eq!(r.axis, "dial setting");
+    assert_eq!(r.none_wins, 0, "no gust-free run wins at any setting");
+    assert_eq!(r.default_wins, 0, "no gust wins at the default setting");
+    assert_eq!(
+        r.settings_with_wins, 3,
+        "three adjacent settings admit a win"
+    );
+    assert!(
+        r.peak_wins >= 4,
+        "the winning gusts are a set, not a knife edge ({})",
+        r.peak_wins
+    );
+    assert!(
+        r.informed_admits_win,
+        "a player who scans the settings finds one that works"
+    );
+    // play it: the dial that works is found by scanning the settings, then a gust is found by trying
+    let mut won_at: Vec<usize> = vec![];
+    for dial in 0..13 {
+        let mut g = SteerGame::new(l.clone());
+        g.set_dial(dial);
+        if vfield::validate_steer::enumerate(&g.spec).successes > 0 {
+            won_at.push(dial);
+        }
+    }
+    assert!(
+        !won_at.is_empty() && !won_at.contains(&0),
+        "won at settings {won_at:?}"
+    );
+}
+
+#[test]
+fn the_catalog_lists_the_steer_dial() {
+    let text = vfield::catalog::render();
+    assert!(text.contains("the dial is also chosen before the first beat"));
+    assert_eq!(
+        text.matches("the dial is also chosen before the first beat")
+            .count(),
+        1
+    );
+}
+
+// ---------------------------------------------------------------- Synchronize: a dial chosen first (cmb-23)
+#[test]
+fn the_sync_dial_is_a_numbered_choice_that_changes_the_field() {
+    let mut g = SyncGame::new(lv("cmb-23"));
+    let levels = g.spec.dial_levels.clone().expect("cmb-23 offers a dial");
+    assert_eq!((levels.len(), g.spec.dial), (13, 0));
+    assert_eq!(levels[0], 1.0, "the first setting is the default");
+    assert!(
+        !g.set_dial(0),
+        "choosing the setting already chosen changes nothing"
+    );
+    assert!(!g.set_dial(levels.len()), "there is no fourteenth setting");
+    let p = v2(0.0, 1.0);
+    let before = g.spec.field.eval(p, 2.0);
+    assert!(g.set_dial(1));
+    let after = g.spec.field.eval(p, 2.0);
+    assert!(before.dist(after) > 0.05, "the dial must change the arrows");
+    // the other levels have no dial
+    for l in levels::sync_levels() {
+        let mut g = SyncGame::new(l);
+        assert!(g.spec.dial_levels.is_none() && !g.set_dial(1));
+    }
+}
+
+#[test]
+fn cmb_23_needs_the_dial_and_the_delays_and_a_win_exists() {
+    let l = lv("cmb-23");
+    assert_eq!(levels::combo_requires("cmb-23"), ["syn-1", "exp-1"]);
+    let r = rep("cmb-23");
+    assert_eq!(r.axis, "dial setting");
+    assert_eq!(r.default_wins, 0, "no delays win at the default setting");
+    assert_eq!(r.none_wins, 0, "releasing both at once wins at no setting");
+    assert_eq!(r.dead_wins, 0);
+    assert_eq!(
+        r.settings_with_wins, 3,
+        "three adjacent settings admit a win"
+    );
+    assert!(
+        r.peak_wins >= 15,
+        "the winning delays are a wide set ({})",
+        r.peak_wins
+    );
+    let mut won_at: Vec<usize> = vec![];
+    for dial in 0..13 {
+        let mut g = SyncGame::new(l.clone());
+        g.set_dial(dial);
+        'scan: for a in 0..=30 {
+            for b in 0..=30 {
+                g.set_delay(0, a as f64 * 0.4);
+                g.set_delay(1, b as f64 * 0.4);
+                if g.launch().success {
+                    won_at.push(dial);
+                    break 'scan;
+                }
+            }
+        }
+    }
+    assert!(
+        !won_at.is_empty() && !won_at.contains(&0),
+        "won at settings {won_at:?}"
+    );
+    assert!(won_at.len() <= 3);
+}
+
+#[test]
+fn the_catalog_lists_the_sync_dial() {
+    let text = vfield::catalog::render();
+    assert_eq!(text.matches("the dial is also chosen first").count(), 1);
+}
+
+// ---------------------------------------------------------------- Tempo: a dial chosen before the launch (cmb-24)
+#[test]
+fn the_tempo_dial_is_a_numbered_choice_that_changes_the_field() {
+    let mut g = TempoGame::new(lv("cmb-24"));
+    let levels = g.dial_levels().cloned().expect("cmb-24 offers a dial");
+    assert_eq!((levels.len(), g.dial), (5, 0));
+    assert_eq!(levels[0], 1.0, "the first setting is the default");
+    assert!(
+        !g.set_dial(0),
+        "choosing the setting already chosen changes nothing"
+    );
+    assert!(!g.set_dial(levels.len()), "there is no sixth setting");
+    let p = v2(0.0, 1.0);
+    let before = g.level.field.eval(p, 3.0);
+    assert!(g.set_dial(1));
+    let after = g.level.field.eval(p, 3.0);
+    assert!(before.dist(after) > 0.05, "the dial must change the arrows");
+    // the other Tempo levels have no dial
+    for l in levels::tempo_levels() {
+        let mut g = TempoGame::new(l);
+        assert!(g.dial_levels().is_none() && !g.set_dial(1));
+    }
+}
+
+#[test]
+fn cmb_24_needs_the_dial_and_the_phase_and_a_win_exists() {
+    let l = lv("cmb-24");
+    assert_eq!(levels::combo_requires("cmb-24"), ["tem-1", "exp-1"]);
+    let r = rep("cmb-24");
+    assert_eq!(r.axis, "dial setting");
+    assert_eq!(
+        r.default_wins, 0,
+        "no launch phase wins at the default setting"
+    );
+    assert_eq!(r.none_wins, 0, "launching at phase 0 wins at no setting");
+    assert_eq!(
+        r.dead_wins, 0,
+        "no launch within 1.5 s of phase 0 wins at any setting"
+    );
+    assert!(r.settings_with_wins >= 2 && r.settings_with_wins <= 3);
+    assert!(
+        r.peak_wins >= 24,
+        "the winning phases are a window, not a knife edge ({})",
+        r.peak_wins
+    );
+    // play it through the game: scrub every phase at every setting
+    let mut won_at = vec![];
+    for dial in 0..5 {
+        let mut g = TempoGame::new(l.clone());
+        g.set_dial(dial);
+        let period = g.period();
+        if (0..240).any(|i| {
+            g.set_phase(period * i as f64 / 240.0);
+            g.launch().success
+        }) {
+            won_at.push(dial);
+        }
+    }
+    assert!(
+        !won_at.is_empty() && !won_at.contains(&0),
+        "won at settings {won_at:?}"
+    );
+    assert!(won_at.len() <= 3);
+    assert!(
+        vfield::validate::solvable(&l),
+        "the level is solvable only at a setting other than the default"
+    );
+}
+
+#[test]
+fn the_catalog_lists_the_tempo_dial() {
+    let text = vfield::catalog::render();
+    assert_eq!(
+        text.matches("the dial is also chosen before the launch")
+            .count(),
+        1
+    );
+}
+
+// ---------------------------------------------------------------- the protocol measures (see docs/07-combinations.md)
+#[test]
+fn the_protocol_passes_the_levels_built_for_it_and_names_the_failures_of_older_ones() {
+    // cmb-12 (Steer + start point) and the redesigned dial levels meet every measure of the protocol
+    for id in ["cmb-12", "cmb-22", "cmb-23", "cmb-28"] {
+        let p = protocol(&lv(id));
+        assert!(p.failures().is_empty(), "{id}: {:?}", p.failures());
+        assert!(
+            p.longest_window >= 3 && p.interior && p.blind_fraction <= 0.25,
+            "{id}"
+        );
+    }
+    // levels built before the protocol are pinned as failing it, so that a change to them is a decision and not an accident
+    let p10 = protocol(&lv("cmb-10"));
+    assert!(p10.failures().iter().any(|f| f.contains("fill ratio")) && p10.longest_window < 3);
+    let p11 = protocol(&lv("cmb-11"));
+    assert_eq!(
+        p11.failures(),
+        vec!["informed scan less than 4x a random setting"]
+    );
+    // a dial with five settings cannot satisfy a window of three and informed at least four times blind together
+    let p24 = protocol(&lv("cmb-24"));
+    assert!(p24.longest_window < 3, "cmb-24 still has five settings");
+}
+
+// ---------------------------------------------------------------- Steer + Synchronize: a drone released first (cmb-28)
+#[test]
+fn the_drone_is_released_at_a_chosen_delay_before_the_first_beat() {
+    let mut g = SteerGame::new(lv("cmb-28"));
+    let c = g.spec.companion.clone().expect("cmb-28 has a drone");
+    assert_eq!((c.delays.len(), g.spec.drone, c.delays[0]), (25, 0, 0.0));
+    assert_eq!(c.band, 0.6);
+    assert!(
+        !g.set_drone(0),
+        "choosing the release already chosen changes nothing"
+    );
+    assert!(!g.set_drone(c.delays.len()), "there is no such release");
+    // a release at which the drone reaches the goal has an arrival time and a path that ends at the goal
+    let i = (0..c.delays.len())
+        .find(|&i| g.spec.with_drone(i).drone_arrival.is_some())
+        .expect("some release reaches the goal");
+    assert!(g.set_drone(i));
+    let a = g.spec.drone_arrival.unwrap();
+    let path = g.spec.drone_path();
+    let goal = &g.spec.regions[g.spec.goal];
+    assert!(path.last().unwrap().dist(goal.center) <= goal.radius + 1e-9);
+    assert!(a > c.delays[i], "the drone arrives after it is released");
+    // locked once the first beat is played
+    g.step(Action::Wait).unwrap();
+    assert!(!g.set_drone(0));
+    assert_eq!(g.spec.drone, i);
+    // levels without a drone have none
+    for l in levels::steer_levels() {
+        let mut g = SteerGame::new(l);
+        assert!(g.spec.companion.is_none() && !g.set_drone(1) && g.spec.drone_path().is_empty());
+    }
+}
+
+#[test]
+fn reaching_the_goal_outside_the_band_of_the_drone_is_a_failed_rendezvous() {
+    let base = SteerSpec::from_level(&lv("cmb-28"));
+    let n = base.companion.as_ref().unwrap().delays.len();
+    let beats = base.beats;
+    let mut seen_missed = false;
+    let mut seen_success = false;
+    for i in 0..n {
+        let spec = base.with_drone(i);
+        for b in 0..beats {
+            for d in 0..spec.dirs.count() {
+                let mut plan = vec![Action::Wait; beats];
+                plan[b] = Action::Gust(d);
+                let Ok(run) = spec.replay(&plan) else {
+                    continue;
+                };
+                match run.end {
+                    Some(End::Failed(FailReason::MissedRendezvous)) => seen_missed = true,
+                    Some(End::Success) => seen_success = true,
+                    _ => {}
+                }
+            }
+        }
+    }
+    assert!(seen_success, "some release and gust meet the drone");
+    assert!(
+        seen_missed,
+        "some gust reaches the goal at a release where the arrival is outside the band"
+    );
+}
+
+#[test]
+fn cmb_28_needs_the_release_and_the_gust_and_a_win_exists() {
+    assert_eq!(levels::combo_requires("cmb-28"), ["ste-1", "syn-1"]);
+    let r = rep("cmb-28");
+    assert_eq!(r.axis, "drone release");
+    assert_eq!(
+        r.none_wins, 0,
+        "no gust-free run meets the drone at any release"
+    );
+    assert_eq!(
+        r.default_wins, 0,
+        "no gust meets the drone at the default release"
+    );
+    assert_eq!(r.dead_wins, 0);
+    assert_eq!(
+        r.settings_with_wins, 3,
+        "three adjacent releases admit a meeting"
+    );
+    assert!(
+        r.informed_measured && r.informed_admits_win,
+        "the anchor reader finds a winning release"
+    );
+}
+
+#[test]
+fn the_catalog_lists_the_drone() {
+    let text = vfield::catalog::render();
+    assert_eq!(text.matches("a drone starts at").count(), 1);
 }

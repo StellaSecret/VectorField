@@ -1558,6 +1558,68 @@ fn tempo_frame(g: &mut TempoGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
     let mut y = panel_header(&lvl);
     y = wrap("The field changes with time. Watch it, scrub the timeline, then launch at the moment you choose.", PX0, y + 8.0, PW, 17.0, gray());
     y += 6.0;
+    if let Some(levels) = g.dial_levels().cloned() {
+        // the dial (levels with one only): chosen before the launch
+        let dial_accent = chapter_color(Chapter::Combo);
+        text("Dial", PX0, y + 16.0, 18.0, WHITE);
+        let per_row = 7usize;
+        let bw = (PW - 6.0 * (per_row as f32 - 1.0)) / per_row as f32;
+        for i in 0..levels.len() {
+            let rr = Rect::new(
+                PX0 + (i % per_row) as f32 * (bw + 6.0),
+                y + 22.0 + (i / per_row) as f32 * 32.0,
+                bw,
+                26.0,
+            );
+            let sel = g.dial == i;
+            let hot = !flying && rr.contains(inp.mouse);
+            draw_rectangle(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                if sel {
+                    alpha(dial_accent, 0.30)
+                } else if hot {
+                    rgb(54, 62, 82)
+                } else {
+                    rgb(36, 41, 56)
+                },
+            );
+            draw_rectangle_lines(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                2.0,
+                if sel { dial_accent } else { rgb(70, 74, 86) },
+            );
+            text(
+                &(i + 1).to_string(),
+                rr.x + 12.0,
+                rr.y + 19.0,
+                17.0,
+                if sel { WHITE } else { gray() },
+            );
+            if hot && inp.pressed {
+                g.set_dial(i);
+            }
+        }
+        y += 22.0 + levels.len().div_ceil(per_row) as f32 * 32.0;
+        y = wrap(
+            &format!(
+                "Dial setting {} of {} scales the tunable part of the field (watch the arrows).",
+                g.dial + 1,
+                levels.len()
+            ),
+            PX0,
+            y + 2.0,
+            PW,
+            15.0,
+            gray(),
+        );
+        y += 4.0;
+    }
     text(
         &format!("Field clock: {:.1} s", g.clock),
         PX0,
@@ -1943,6 +2005,9 @@ fn end_message(e: End, g: &SteerGame) -> String {
         End::Failed(FailReason::Hazard) => "The probe hit a hazard.".into(),
         End::Failed(FailReason::MissedGate) => "Reached the target but skipped the gate.".into(),
         End::Failed(FailReason::WrongRegion) => "The probe ended in the wrong region.".into(),
+        End::Failed(FailReason::MissedRendezvous) => {
+            "Reached the target, but not within the band of the drone's arrival.".into()
+        }
     }
 }
 
@@ -2466,6 +2531,25 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
     for reg in &lvl.regions {
         r::draw_region(reg, false);
     }
+    if let Some(c) = g.spec.companion.clone() {
+        // the drone flies by itself: show its path and when it arrives
+        let path = g.spec.drone_path();
+        let col = rgb(240, 170, 90);
+        r::draw_path(&path, alpha(col, 0.8), 2.5);
+        r::draw_start(c.start);
+        let sp = r::w2s(c.start);
+        text("A", sp.x - 5.0, sp.y - 18.0, 20.0, col);
+        if let Some(a) = g.spec.drone_arrival {
+            let e = r::w2s(path.last().copied().unwrap_or(c.start));
+            text(
+                &format!("A arrives {:.1} s", a),
+                e.x - 70.0,
+                e.y - 14.0,
+                16.0,
+                col,
+            );
+        }
+    }
     if let Some(sr) = &src_rules {
         let infl = vfield::modes::influence_radius_of(sr.k, sr.sigma);
         for src in g.spec.sources.iter() {
@@ -2813,6 +2897,124 @@ fn steer_frame(g: &mut SteerGame, st: &mut St, inp: &Input, prefs: &Prefs, dt: f
             WHITE,
         );
         y = wrap(note, PX0, y + 34.0, PW, 15.0, gray());
+        y += 4.0;
+    }
+    if let Some(levels) = g.spec.dial_levels.clone() {
+        // the dial (levels with one only): chosen before the first beat, then locked for the run
+        text("Dial", PX0, y + 14.0, 18.0, WHITE);
+        let per_row = 5usize;
+        let bw = (PW - 6.0 * (per_row as f32 - 1.0)) / per_row as f32;
+        for (i, _) in levels.iter().enumerate() {
+            let rr = Rect::new(
+                PX0 + (i % per_row) as f32 * (bw + 6.0),
+                y + 22.0 + (i / per_row) as f32 * 34.0,
+                bw,
+                28.0,
+            );
+            let sel = g.spec.dial == i;
+            let hot = can_set_clock && rr.contains(inp.mouse);
+            draw_rectangle(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                if sel {
+                    alpha(steer_accent, 0.30)
+                } else if hot {
+                    rgb(54, 62, 82)
+                } else {
+                    rgb(36, 41, 56)
+                },
+            );
+            draw_rectangle_lines(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                2.0,
+                if sel { steer_accent } else { rgb(70, 74, 86) },
+            );
+            text(
+                &(i + 1).to_string(),
+                rr.x + bw / 2.0 - 4.0,
+                rr.y + 20.0,
+                17.0,
+                if sel { WHITE } else { gray() },
+            );
+            if hot && inp.pressed {
+                g.set_dial(i);
+            }
+        }
+        y += 22.0 + ((levels.len() + per_row - 1) / per_row) as f32 * 34.0;
+        let note = if can_set_clock {
+            format!(
+                "Dial setting {} of {} scales the tunable part of the field (watch the arrows). Locked once the first beat is played.",
+                g.spec.dial + 1,
+                levels.len()
+            )
+        } else {
+            "The dial is locked for this run.".to_string()
+        };
+        y = wrap(&note, PX0, y + 2.0, PW, 15.0, gray());
+        y += 4.0;
+    }
+    if let Some(c) = g.spec.companion.clone() {
+        // the drone's release delay (levels with a drone only): chosen before the first beat
+        let drone_accent = rgb(240, 170, 90);
+        text("Release A at", PX0, y + 14.0, 18.0, WHITE);
+        let per_row = 7usize;
+        let bw = (PW - 6.0 * (per_row as f32 - 1.0)) / per_row as f32;
+        for (i, d) in c.delays.iter().enumerate() {
+            let rr = Rect::new(
+                PX0 + (i % per_row) as f32 * (bw + 6.0),
+                y + 22.0 + (i / per_row) as f32 * 34.0,
+                bw,
+                28.0,
+            );
+            let sel = g.spec.drone == i;
+            let hot = can_set_clock && rr.contains(inp.mouse);
+            draw_rectangle(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                if sel {
+                    alpha(drone_accent, 0.30)
+                } else if hot {
+                    rgb(54, 62, 82)
+                } else {
+                    rgb(36, 41, 56)
+                },
+            );
+            draw_rectangle_lines(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                2.0,
+                if sel { drone_accent } else { rgb(70, 74, 86) },
+            );
+            text(
+                &format!("{}", d),
+                rr.x + bw / 2.0 - 8.0,
+                rr.y + 20.0,
+                15.0,
+                if sel { WHITE } else { gray() },
+            );
+            if hot && inp.pressed {
+                g.set_drone(i);
+            }
+        }
+        y += 22.0 + c.delays.len().div_ceil(per_row) as f32 * 34.0;
+        let note = match g.spec.drone_arrival {
+            Some(a) if can_set_clock => format!(
+                "A is released {} s after the start and arrives at {:.1} s. Steer B to arrive within {} s of that. Locked once the first beat is played.",
+                c.delays[g.spec.drone], a, c.band
+            ),
+            Some(a) => format!("A arrives at {:.1} s; B must arrive within {} s of that.", a, c.band),
+            None => "At this release A never reaches the target: choose another.".to_string(),
+        };
+        y = wrap(&note, PX0, y + 2.0, PW, 15.0, gray());
         y += 4.0;
     }
     if let Some(sr) = g.spec.source_rules.clone() {
@@ -4978,6 +5180,67 @@ fn sync_frame(g: &mut SyncGame, st: &mut St, inp: &Input, prefs: &Prefs) {
         y += 34.0;
         y = wrap(
             "Click a numbered marker on the field, or a number here, to start it from there.",
+            PX0,
+            y + 2.0,
+            PW,
+            15.0,
+            gray(),
+        );
+        y += 4.0;
+    }
+    if let Some(levels) = spec.dial_levels.clone() {
+        // the dial (levels with one only): chosen before the delays; changing it clears the last flight
+        text("Dial", PX0, y + 16.0, 18.0, WHITE);
+        let per_row = 7usize;
+        let bw = (PW - 6.0 * (per_row as f32 - 1.0)) / per_row as f32;
+        for i in 0..levels.len() {
+            let rr = Rect::new(
+                PX0 + (i % per_row) as f32 * (bw + 6.0),
+                y + 22.0 + (i / per_row) as f32 * 32.0,
+                bw,
+                26.0,
+            );
+            let sel = spec.dial == i;
+            let hot = !playing && rr.contains(inp.mouse);
+            draw_rectangle(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                if sel {
+                    alpha(accent, 0.30)
+                } else if hot {
+                    rgb(54, 62, 82)
+                } else {
+                    rgb(36, 41, 56)
+                },
+            );
+            draw_rectangle_lines(
+                rr.x,
+                rr.y,
+                rr.w,
+                rr.h,
+                2.0,
+                if sel { accent } else { rgb(70, 74, 86) },
+            );
+            text(
+                &(i + 1).to_string(),
+                rr.x + 12.0,
+                rr.y + 19.0,
+                17.0,
+                if sel { WHITE } else { gray() },
+            );
+            if hot && inp.pressed && g.set_dial(i) {
+                st.sync_show = false;
+            }
+        }
+        y += 22.0 + levels.len().div_ceil(per_row) as f32 * 32.0;
+        y = wrap(
+            &format!(
+                "Dial setting {} of {} scales the tunable part of the field (watch the arrows).",
+                spec.dial + 1,
+                levels.len()
+            ),
             PX0,
             y + 2.0,
             PW,
